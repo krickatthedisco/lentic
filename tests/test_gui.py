@@ -8,6 +8,7 @@ import struct
 import threading
 import unittest
 import urllib.request
+import zipfile
 from pathlib import Path
 
 from PIL import Image
@@ -101,9 +102,11 @@ class TestGuiServer(unittest.TestCase):
         self.assertIn("Upload right picture", html)
         self.assertIn("Upload front picture", html)
         self.assertIn("> mm<", html)
-        self.assertIn("Export multi-part STL", html)
+        self.assertIn("Export for slicer", html)
         self.assertIn("Maintain aspect ratio", html)
         self.assertIn("Drag each frame", html)
+        self.assertIn("Flip horizontal", html)
+        self.assertIn("Flip vertical", html)
         self.assertIn("Top and bottom", html)
         self.assertIn('id="pitch" type="number" min="0.4" step="0.1" value="0.8"', html)
         self.assertIn('id="row" type="number" min="0.2" step="0.1" value="0.4"', html)
@@ -130,11 +133,14 @@ class TestGuiServer(unittest.TestCase):
 
         exported = self._post("/api/export", boundary, body)
         self.assertEqual(exported.status, 200)
-        self.assertIn("lentic-plate.stl", exported.headers.get("Content-Disposition", ""))
-        text = exported.read().decode("ascii")
-        self.assertGreaterEqual(len([line for line in text.splitlines() if line.startswith("solid ")]), 3)
-        self.assertIn("filament_ff0000", text)
-        self.assertIn("filament_0000ff", text)
+        self.assertIn("lentic-plate.3mf", exported.headers.get("Content-Disposition", ""))
+        package = zipfile.ZipFile(io.BytesIO(exported.read()))
+        model_xml = package.read("3D/3dmodel.model").decode("utf-8")
+        settings = package.read("Metadata/model_settings.config").decode("utf-8")
+        self.assertEqual(model_xml.count("<item "), 1)
+        self.assertEqual(settings.count('subtype="normal_part"'), 3)
+        self.assertIn("red #ff0000", settings)
+        self.assertIn("blue #0000ff", settings)
 
     def _post(self, path: str, boundary: str, body: bytes):
         request = urllib.request.Request(

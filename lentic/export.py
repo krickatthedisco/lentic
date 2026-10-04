@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import struct
 import zipfile
+from io import BytesIO
 from pathlib import Path
+from xml.etree import ElementTree
+from xml.sax.saxutils import escape
 
 import numpy as np
 from PIL import Image
 
 from lentic.build import LenticModel, MeshPart
-from lentic.color import rgb_to_hex
+from lentic.color import color_name, rgb_to_hex
 from lentic.mesh import triangle_normals
 
 
@@ -103,44 +106,109 @@ def write_stl(path: Path, triangles: np.ndarray) -> None:
 
 
 def write_3mf(path: Path, parts: list[tuple[MeshPart, str]]) -> None:
-    objects = []
-    items = []
-    for object_id, (part, filename) in enumerate(parts, start=1):
+    Path(path).write_bytes(parts_3mf_bytes([part for part, _filename in parts]))
+
+
+def plate_3mf_bytes(model: LenticModel) -> bytes:
+    """One 3MF object. Each filament, and the base, is one part of that object."""
+    parts = [part for part in model.parts if len(part.triangles)]
+    if not parts:
+        raise ValueError("nothing to export")
+    return parts_3mf_bytes(parts)
+
+
+def parts_3mf_bytes(parts: list[MeshPart]) -> bytes:
+    labeled = [(part, _part_label(part)) for part in parts if len(part.triangles)]
+    if not labeled:
+        raise ValueError("nothing to export")
+    meshes: list[str] = []
+    listed: list[tuple[int, str, int]] = []
+    next_id = 1
+    for part, label in labeled:
         vertices, faces = _index_triangles(part.triangles)
         if len(faces) == 0:
             continue
-        objects.append(_mesh_xml(object_id, f"{filename} #{rgb_to_hex(part.rgb)}", vertices, faces))
-        items.append(f'    <item objectid="{object_id}"/>')
+        meshes.append(_mesh_xml(next_id, label, vertices, faces))
+        listed.append((next_id, label, next_id))
+        next_id += 1
+    if not listed:
+        raise ValueError("nothing to export")
+    assembly_id = next_id
     model = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<model unit="millimeter" xml:lang="en-US" '
-        'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n'
+        'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" '
+        'xmlns:BambuStudio="http://schemas.bambulab.com/package/2021">\n'
         '  <metadata name="Application">lentic</metadata>\n'
+        '  <metadata name="BambuStudio:3mfVersion">1</metadata>\n'
         '  <metadata name="Title">Color lenticular plate</metadata>\n'
         "  <resources>\n"
-        + "\n".join(objects)
+        + "\n".join(meshes)
+        + "\n"
+        + _assembly_xml(assembly_id, [mesh_id for mesh_id, _label, _extruder in listed])
         + "\n  </resources>\n  <build>\n"
-        + "\n".join(items)
-        + "\n  </build>\n</model>\n"
+        f'    <item objectid="{assembly_id}" printable="1"/>\n'
+        "  </build>\n</model>\n"
     )
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as package:
-        package.writestr(
-            "[Content_Types].xml",
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
-            '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
-            '  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
-            "</Types>\n",
-        )
-        package.writestr(
-            "_rels/.rels",
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-            '  <Relationship Target="/3D/3dmodel.model" Id="rel0" '
-            'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
-            "</Relationships>\n",
-        )
+    buffer = BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as package:
+        package.writestr("[Content_Types].xml", _CONTENT_TYPES)
+        package.writestr("_rels/.rels", _RELS)
         package.writestr("3D/3dmodel.model", model)
+        package.writestr("Metadata/model_settings.config", _model_settings(assembly_id, listed))
+    return buffer.getvalue()
+
+
+_CONTENT_TYPES = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+    '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+    '  <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>\n'
+    '  <Default Extension="config" ContentType="text/xml"/>\n'
+    "</Types>\n"
+)
+_RELS = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+    '  <Relationship Target="/3D/3dmodel.model" Id="rel0" '
+    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>\n'
+    "</Relationships>\n"
+)
+
+
+def _part_label(part: MeshPart) -> str:
+    label = f"{color_name(part.rgb)} #{rgb_to_hex(part.rgb)}"
+    if part.role == "base":
+        return f"base {label}"
+    return label
+
+
+def _assembly_xml(object_id: int, component_ids: list[int]) -> str:
+    components = "\n".join(f'      <component objectid="{mesh_id}"/>' for mesh_id in component_ids)
+    return (
+        f'    <object id="{object_id}" type="model" name="lentic-plate">\n'
+        f"      <components>\n{components}\n      </components>\n"
+        "    </object>"
+    )
+
+
+def _model_settings(assembly_id: int, parts: list[tuple[int, str, int]]) -> str:
+    config = ElementTree.Element("config")
+    obj = ElementTree.SubElement(config, "object", {"id": str(assembly_id)})
+    ElementTree.SubElement(obj, "metadata", {"key": "name", "value": "lentic-plate"})
+    ElementTree.SubElement(obj, "metadata", {"key": "extruder", "value": "1"})
+    for mesh_id, label, extruder in parts:
+        part_el = ElementTree.SubElement(
+            obj, "part", {"id": str(mesh_id), "subtype": "normal_part"}
+        )
+        ElementTree.SubElement(part_el, "metadata", {"key": "name", "value": label})
+        ElementTree.SubElement(part_el, "metadata", {"key": "extruder", "value": str(extruder)})
+    ElementTree.indent(config, space="  ")
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        + ElementTree.tostring(config, encoding="unicode")
+        + "\n"
+    )
 
 
 def _index_triangles(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -151,6 +219,10 @@ def _index_triangles(triangles: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return unique, faces[valid]
 
 
+def _xml_attr(text: str) -> str:
+    return escape(text, {'"': "&quot;"})
+
+
 def _mesh_xml(object_id: int, name: str, vertices: np.ndarray, faces: np.ndarray) -> str:
     verts = "\n".join(
         f'          <vertex x="{x:.5f}" y="{y:.5f}" z="{z:.5f}"/>' for x, y, z in vertices
@@ -159,7 +231,7 @@ def _mesh_xml(object_id: int, name: str, vertices: np.ndarray, faces: np.ndarray
         f'          <triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces
     )
     return (
-        f'    <object id="{object_id}" type="model" name="{_xml(name)}">\n'
+        f'    <object id="{object_id}" type="model" name="{_xml_attr(name)}">\n'
         "      <mesh>\n        <vertices>\n"
         f"{verts}\n        </vertices>\n        <triangles>\n"
         f"{tris}\n        </triangles>\n      </mesh>\n    </object>"
@@ -221,8 +293,8 @@ def _print_notes(model: LenticModel, parts: list[tuple[MeshPart, str]]) -> str:
         f"Size: {grid.width_mm:.2f} x {grid.height_mm:.2f} x {model.base_mm + grid.ridge_height_mm:.2f} mm",
         f"Ridges: {grid.n_ridges} at {grid.pitch_mm:.2f} mm, {grid.ridge_height_mm:.2f} mm tall",
         "",
-        "Import model.3mf, or import every STL together as one object with multiple parts.",
-        "Assign each file the filament closest to its color:",
+        "Open model.3mf. It is one plate with one part per color, already assembled.",
+        "Match each part to the filament in its name, then slice. Do not split it into shells.",
         "",
     ]
     for part, filename in parts:

@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { OrbitControls } from "/vendor/OrbitControls.js";
 
 const pictures = { left: null, right: null, front: null };
+const flips = {
+  left: { h: false, v: false },
+  right: { h: false, v: false },
+  front: { h: false, v: false },
+};
 const crops = { left: null, right: null, front: null };
 const imageAspects = { left: null, right: null, front: null };
 const cropCustom = { left: false, right: false, front: false };
@@ -98,12 +103,30 @@ function formData() {
   const secondCrop = cropValue("right");
   if (firstCrop) data.set(`crop_${first}`, firstCrop);
   if (secondCrop) data.set(`crop_${second}`, secondCrop);
+  writeFlip(data, first, "left");
+  writeFlip(data, second, "right");
   if (pictures.front) {
     data.set("front", pictures.front, pictures.front.name);
     const frontCrop = cropValue("front");
     if (frontCrop) data.set("crop_front", frontCrop);
+    writeFlip(data, "front", "front");
   }
   return data;
+}
+
+function writeFlip(data, field, slot) {
+  data.set(`flip_h_${field}`, flips[slot].h ? "1" : "0");
+  data.set(`flip_v_${field}`, flips[slot].v ? "1" : "0");
+}
+
+function showFlip(slot) {
+  const thumb = document.getElementById(`thumb-${slot}`);
+  thumb.classList.toggle("flip-h", flips[slot].h);
+  thumb.classList.toggle("flip-v", flips[slot].v);
+  document.querySelectorAll(`[data-flip="${slot}"]`).forEach((button) => {
+    const on = button.dataset.axis === "h" ? flips[slot].h : flips[slot].v;
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+  });
 }
 
 function cropValue(slot) {
@@ -234,6 +257,8 @@ function bindUpload(slot) {
 
 function setPicture(slot, file) {
   pictures[slot] = file;
+  flips[slot] = { h: false, v: false };
+  showFlip(slot);
   const chosen = document.querySelector(`#slot-${slot} .chosen`);
   chosen.hidden = false;
   document.getElementById(`name-${slot}`).textContent = file.name;
@@ -426,10 +451,22 @@ function resizeCrop(start, handle, dx, dy, ratio) {
   return clampCrop(x, y, width, height, ratio);
 }
 
+document.querySelectorAll("[data-flip]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const slot = button.dataset.flip;
+    const axis = button.dataset.axis;
+    flips[slot][axis] = !flips[slot][axis];
+    showFlip(slot);
+    schedule();
+  });
+});
+
 document.querySelectorAll("[data-clear]").forEach((button) => {
   button.addEventListener("click", () => {
     const slot = button.dataset.clear;
     pictures[slot] = null;
+    flips[slot] = { h: false, v: false };
+    showFlip(slot);
     crops[slot] = null;
     imageAspects[slot] = null;
     cropCustom[slot] = false;
@@ -508,7 +545,7 @@ document.getElementById("reset-view").addEventListener("click", () => {
 exportButton.addEventListener("click", async () => {
   if (!pictures.left || !pictures.right) return;
   exportButton.disabled = true;
-  status.textContent = "Writing the multi-part STL...";
+  status.textContent = "Writing the slicer file...";
   try {
     const response = await fetch("/api/export", { method: "POST", body: formData() });
     const type = response.headers.get("content-type") || "";
@@ -520,10 +557,10 @@ exportButton.addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "lentic-plate.stl";
+    link.download = "lentic-plate.3mf";
     link.click();
     URL.revokeObjectURL(url);
-    status.textContent = "Saved lentic-plate.stl. Each solid is one filament.";
+    status.textContent = "Saved lentic-plate.3mf. One part per color, already assembled.";
   } catch (error) {
     status.textContent = error.message;
   } finally {

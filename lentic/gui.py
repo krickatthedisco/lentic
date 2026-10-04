@@ -15,7 +15,7 @@ from PIL import Image
 
 from lentic.build import LenticModel, build_from_images
 from lentic.color import color_name, parse_hex, rgb_to_hex
-from lentic.export import multipart_stl_bytes
+from lentic.export import plate_3mf_bytes
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 MAX_BODY = 32 * 1024 * 1024
@@ -82,6 +82,7 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 base_rgb=parse_hex(fields.get("base_color") or "#f4f1ea"),
                 orientation=orientation,
                 crops=_crops(fields, order),
+                flips=_flips(fields, order),
             )
         except (OSError, ValueError) as exc:
             if isinstance(exc, ValueError):
@@ -210,9 +211,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/export":
                 self._send(
                     200,
-                    multipart_stl_bytes(model),
-                    "model/stl",
-                    filename="lentic-plate.stl",
+                    plate_3mf_bytes(model),
+                    "model/3mf",
+                    filename="lentic-plate.3mf",
                 )
                 return
             self._send(404, b'{"error":"unknown request"}', "application/json")
@@ -255,6 +256,10 @@ def _crops(fields: dict[str, str], order: list[str]) -> list[tuple[float, float,
             raise ValueError(f"the {key} crop must be four numbers")
         crops.append(parts)
     return crops
+
+
+def _flips(fields: dict[str, str], order: list[str]) -> list[tuple[bool, bool]]:
+    return [(_flag(fields, f"flip_h_{key}", default=False), _flag(fields, f"flip_v_{key}", default=False)) for key in order]
 
 
 def _orientation(fields: dict[str, str]) -> str:

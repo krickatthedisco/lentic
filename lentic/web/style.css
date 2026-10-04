@@ -49,6 +49,12 @@ button:disabled { opacity: 0.45; cursor: default; }
   touch-action: none;
 }
 .crop-stage img { width: 100%; height: 100%; display: block; object-fit: fill; pointer-events: none; }
+.crop-stage img.flip-h { transform: scaleX(-1); }
+.crop-stage img.flip-v { transform: scaleY(-1); }
+.crop-stage img.flip-h.flip-v { transform: scale(-1, -1); }
+.flip-row { display: flex; gap: 6px; margin-top: 6px; }
+.flip-row button { flex: 1; padding: 6px 8px; }
+.flip-row button[aria-pressed="true"] { background: #9a3412; color: #fff; border-color: #9a3412; }
 .crop-box {
   position: absolute;
   border: 2px solid #fff;

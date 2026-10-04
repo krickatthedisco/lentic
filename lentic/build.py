@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 from lentic.color import as_rgb_array, choose_palette, floyd_steinberg, nearest_indices
 from lentic.mesh import extrude_xz, facet_profiles
@@ -261,6 +261,7 @@ def build_from_images(
     seam_mm: float = 0.02,
     orientation: str = "vertical",
     crops: list[tuple[float, float, float, float] | None] | None = None,
+    flips: list[tuple[bool, bool]] | None = None,
 ) -> LenticModel:
     if len(paths) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
@@ -284,14 +285,18 @@ def build_from_images(
         crops = [None] * len(paths)
     if len(crops) != len(paths):
         raise ValueError("each picture needs its own crop")
+    if flips is None:
+        flips = [(False, False)] * len(paths)
+    if len(flips) != len(paths):
+        raise ValueError("each picture needs its own flip")
     plate_aspect = grid.width_mm / grid.height_mm
     if orientation == "horizontal":
         pixel_size = (grid.n_rows, grid.n_ridges)
     else:
         pixel_size = (grid.n_ridges, grid.n_rows)
     fitted = [
-        _fit_image(path, pixel_size, plate_aspect=plate_aspect, crop=crop)
-        for path, crop in zip(paths, crops)
+        _fit_image(path, pixel_size, plate_aspect=plate_aspect, crop=crop, flip=flip)
+        for path, crop, flip in zip(paths, crops, flips)
     ]
     if palette is None:
         samples = np.concatenate([image.reshape(-1, 3) for image in fitted], axis=0)
@@ -382,7 +387,8 @@ def _open_rgb(path: str | Path) -> Image.Image:
     if not file.is_file():
         raise ValueError(f"image not found: {file}")
     with Image.open(file) as image:
-        return image.convert("RGB")
+        # Camera photos store rotation in a tag. Honor it so the plate matches the picture.
+        return ImageOps.exif_transpose(image).convert("RGB")
 
 
 def _fit_image(
@@ -391,6 +397,7 @@ def _fit_image(
     *,
     plate_aspect: float,
     crop: tuple[float, float, float, float] | None,
+    flip: tuple[bool, bool] = (False, False),
 ) -> np.ndarray:
     """Sample a picture onto the plate.
 
@@ -399,6 +406,11 @@ def _fit_image(
     on a landscape plate keeps its sides.
     """
     image = _open_rgb(path)
+    flip_horizontal, flip_vertical = flip
+    if flip_horizontal:
+        image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    if flip_vertical:
+        image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
     width_px, height_px = pixel_size
     if crop is None and image.size == (width_px, height_px):
         return np.asarray(image, dtype=np.uint8)

@@ -40,6 +40,10 @@
           <button type="button" class="text" data-reset-crop="left">Reset crop</button>
           <button type="button" class="text" data-clear="left">Remove</button>
         </div>
+        <div class="flip-row">
+          <button type="button" class="secondary" data-flip="left" data-axis="h" aria-pressed="false">Flip horizontal</button>
+          <button type="button" class="secondary" data-flip="left" data-axis="v" aria-pressed="false">Flip vertical</button>
+        </div>
       </div>
     </div>
     <div class="upload" id="slot-right">
@@ -56,6 +60,10 @@
           <span id="name-right"></span>
           <button type="button" class="text" data-reset-crop="right">Reset crop</button>
           <button type="button" class="text" data-clear="right">Remove</button>
+        </div>
+        <div class="flip-row">
+          <button type="button" class="secondary" data-flip="right" data-axis="h" aria-pressed="false">Flip horizontal</button>
+          <button type="button" class="secondary" data-flip="right" data-axis="v" aria-pressed="false">Flip vertical</button>
         </div>
       </div>
     </div>
@@ -74,9 +82,13 @@
           <button type="button" class="text" data-reset-crop="front">Reset crop</button>
           <button type="button" class="text" data-clear="front">Remove</button>
         </div>
+        <div class="flip-row">
+          <button type="button" class="secondary" data-flip="front" data-axis="h" aria-pressed="false">Flip horizontal</button>
+          <button type="button" class="secondary" data-flip="front" data-axis="v" aria-pressed="false">Flip vertical</button>
+        </div>
       </div>
     </div>
-    <p class="hint">Drag each frame to choose the part that prints. The frame matches the plate, so nothing else gets cut off. The front picture is optional and sits on the flat top of each ridge.</p>
+    <p class="hint">Drag each frame to choose the part that prints. The frame matches the plate, so nothing else gets cut off. Flip horizontal or Flip vertical if a picture came in the wrong way. The front picture is optional and sits on the flat top of each ridge.</p>
     <button type="button" id="sample" class="secondary">Load sample pictures</button>
   </section>
 
@@ -104,8 +116,8 @@
     <label class="check"><input id="dither" type="checkbox" checked> Dither photos onto the filaments</label>
   </section>
 
-  <button type="button" id="export-stl" disabled>Export multi-part STL</button>
-  <p class="hint">One STL file. Each filament is a separate solid, named with its color, already in place.</p>
+  <button type="button" id="export-stl" disabled>Export for slicer</button>
+  <p class="hint">One 3MF file. One part per color, already assembled, so the slicer can print each color on its own filament.</p>
   <p id="status" role="status">Upload a left picture and a right picture.</p>
 </aside>
 <main>

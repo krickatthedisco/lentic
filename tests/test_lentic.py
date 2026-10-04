@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from lentic.build import build_from_images, build_from_indices
+from lentic.build import _open_rgb, build_from_images, build_from_indices
 from lentic.cli import main
 from lentic.color import choose_palette, floyd_steinberg, median_cut, nearest_indices, parse_hex
 from lentic.export import export_model
@@ -203,6 +203,40 @@ class TestBuild(unittest.TestCase):
             self.assertEqual(tuple(int(channel) for channel in view[0, 0]), (255, 0, 0))
             self.assertEqual(tuple(int(channel) for channel in view[0, -1]), (0, 0, 255))
 
+    def test_vertical_flip_puts_the_bottom_row_on_top(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            picture = Image.new("RGB", (4, 2), (0, 0, 255))
+            picture.paste(Image.new("RGB", (4, 1), (255, 0, 0)), (0, 0))
+            picture.save(root / "stack.png")
+            Image.new("RGB", (4, 2), (0, 0, 255)).save(root / "other.png")
+            model = build_from_images(
+                [root / "stack.png", root / "other.png"],
+                width_mm=4,
+                height_mm=2,
+                pitch_mm=1,
+                row_mm=1,
+                palette=PALETTE[:2],
+                dither=False,
+                ridge_height_mm=0.6,
+                flips=[(False, True), (False, False)],
+            )
+            view = model.previews[0]
+            self.assertEqual(tuple(int(channel) for channel in view[0, 0]), (0, 0, 255))
+            self.assertEqual(tuple(int(channel) for channel in view[-1, 0]), (255, 0, 0))
+
+    def test_upside_down_photo_tag_is_turned_upright(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "turned.jpg"
+            picture = Image.new("RGB", (32, 16), (0, 0, 255))
+            picture.paste(Image.new("RGB", (32, 8), (255, 0, 0)), (0, 0))
+            exif = Image.Exif()
+            exif[274] = 3
+            picture.save(path, exif=exif, quality=95)
+            opened = np.asarray(_open_rgb(path))
+            self.assertGreater(int(opened[0, 0, 2]), 200)
+            self.assertGreater(int(opened[-1, 0, 0]), 200)
+
     def test_crop_can_keep_only_the_left_half(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
@@ -258,7 +292,12 @@ class TestExport(unittest.TestCase):
             self.assertGreater(mesh_volume(red.astype(np.float64)), 0)
             with zipfile.ZipFile(out / "model.3mf") as package:
                 xml = package.read("3D/3dmodel.model").decode("utf-8")
-            self.assertEqual(xml.count("<object "), 3)
+                settings = package.read("Metadata/model_settings.config").decode("utf-8")
+            self.assertEqual(xml.count("<object "), 4)
+            self.assertEqual(xml.count("<item "), 1)
+            self.assertEqual(settings.count('subtype="normal_part"'), 3)
+            self.assertIn("red #ff0000", settings)
+            self.assertIn("blue #0000ff", settings)
             manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
             self.assertEqual([angle["name"] for angle in manifest["angles"]], ["left", "right"])
             html = (out / "preview.html").read_text(encoding="utf-8")

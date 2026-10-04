@@ -18,7 +18,7 @@ image A          image B
   +----------+  base
 ```
 
-From the left you see the first image. From the right you see the second. **Top and bottom** turns the ridges sideways, so tipping the plate up or down switches the pictures (a Clean / Dirty dishwasher magnet is the usual use). With three images, the flat top shows the middle one when you look straight on. Straight down, both slopes show up as stripes.
+From the left you see the first image. From the right you see the second. **Top and bottom** turns the ridges sideways, so tipping the plate up or down switches the pictures (a Clean / Dirty dishwasher magnet is one use case). With three images, the flat top shows the middle one when you look straight on. Straight down, both slopes show up as stripes.
 
 ## Install
 

@@ -112,6 +112,8 @@ function formData() {
   data.set("base_color", document.getElementById("base-color").value);
   data.set("orientation", orientation);
   data.set("nozzle", String(numberValue("nozzle")));
+  data.set("layer_height", String(numberValue("layer-height")));
+  data.set("initial_layer", String(numberValue("initial-layer")));
   data.set("crest_line", document.getElementById("crest-line").checked ? "1" : "0");
   if (document.getElementById("crest-line").checked) {
     data.set("crest_color", document.getElementById("crest-color").value);
@@ -473,7 +475,7 @@ function nozzlePreset() {
     row: nozzle,
     ridge: pitch * 0.8,
     crestWidth: nozzle,
-    crestHeight: nozzle / 2,
+    crestHeight: Number(document.getElementById("layer-height").value),
   };
 }
 
@@ -494,6 +496,8 @@ function writeResolutionHint() {
   const row = readMm("row");
   const crestWidth = readMm("crest-width");
   const crestHeight = readMm("crest-height");
+  const layer = readMm("layer-height");
+  const initial = readMm("initial-layer");
   const slope = pictures.front ? 0.25 : 0.5;
   const lines = nozzle > 0 ? (pitch * slope) / nozzle : 0;
   const flat = nozzle * 1.25;
@@ -504,6 +508,7 @@ function writeResolutionHint() {
     `${lead} This plate uses a ${formatMm(pitch)} mm pitch, a ${formatMm(ridge)} mm ridge, and ${formatMm(row)} mm rows. ` +
     `Each slope is ${formatMm(lines)} lines of the ${formatMm(nozzle)} mm nozzle. ` +
     `The tip is cut flat ${formatMm(flat)} mm in from each side. ` +
+    `Layers are ${formatMm(layer)} mm after a ${formatMm(initial)} mm first layer. ` +
     `The crest line, if you turn it on, is ${formatMm(crestWidth)} mm wide and ${formatMm(crestHeight)} mm tall.`;
 }
 
@@ -769,6 +774,15 @@ document.getElementById("orient-horizontal").addEventListener("click", () => {
 document.getElementById("dither").addEventListener("change", schedule);
 document.getElementById("nozzle").addEventListener("change", () => {
   applyNozzleDefaults();
+  schedule();
+});
+document.getElementById("layer-height").addEventListener("input", () => {
+  document.getElementById("crest-height").value = formatMm(readMm("layer-height"));
+  writeResolutionHint();
+  schedule();
+});
+document.getElementById("initial-layer").addEventListener("input", () => {
+  writeResolutionHint();
   schedule();
 });
 

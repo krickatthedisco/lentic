@@ -180,6 +180,8 @@ def _part_label(part: MeshPart) -> str:
     label = f"{color_name(part.rgb)} #{rgb_to_hex(part.rgb)}"
     if part.role == "base":
         return f"base {label}"
+    if part.role == "crest":
+        return f"crest {label}"
     return label
 
 
@@ -239,7 +241,7 @@ def _mesh_xml(object_id: int, name: str, vertices: np.ndarray, faces: np.ndarray
 
 
 def _filename(part: MeshPart, used: set[str]) -> str:
-    stem = "base" if part.role == "base" else "filament"
+    stem = {"base": "base", "crest": "crest"}.get(part.role, "filament")
     name = f"{stem}_{rgb_to_hex(part.rgb)}.stl"
     if name not in used:
         return name
@@ -304,6 +306,7 @@ def _print_notes(model: LenticModel, parts: list[tuple[MeshPart, str]]) -> str:
         lines.append(
             f"A crest line {model.crest_width_mm:.2f} mm wide and {model.crest_height_mm:.2f} mm tall "
             f"runs along the top of each ridge in {color_name(model.crest_rgb)} #{rgb_to_hex(model.crest_rgb)}. "
+            "It is its own part, on its own layer above the pictures, so give it the same layer height you entered. "
             "It hides the other picture when the plate is tilted."
         )
     if model.magnets is not None:

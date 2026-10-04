@@ -235,15 +235,24 @@ class TestBuild(unittest.TestCase):
             crest_width_mm=0.4,
             crest_height_mm=0.2,
         )
-        black = next(part for part in model.parts if part.role == "filament" and part.rgb == (0, 0, 0))
+        black = next(part for part in model.parts if part.role == "crest")
+        self.assertEqual(black.rgb, (0, 0, 0))
         self.assertAlmostEqual(mesh_volume(black.triangles), 0.4 * 2.0 * 0.2, places=4)
         points = black.triangles.reshape(-1, 3)
         self.assertAlmostEqual(points[:, 0].min(), 1.8, places=4)
         self.assertAlmostEqual(points[:, 0].max(), 2.2, places=4)
         foot = 0.75
-        crest = foot + (2.0 - 0.5) / 2.0 * (model.base_mm + 3.2 - foot)
-        self.assertAlmostEqual(points[:, 2].min(), crest, places=4)
-        self.assertAlmostEqual(points[:, 2].max(), crest + 0.2, places=4)
+        shelf = foot + (2.0 - 0.5) / 2.0 * (model.base_mm + 3.2 - foot)
+        self.assertGreater(points[:, 2].min(), shelf)
+        self.assertAlmostEqual(points[:, 2].min(), 3.22, places=4)
+        self.assertAlmostEqual(points[:, 2].max(), 3.42, places=4)
+        self.assertLess(3.2, points[:, 2].min())
+        self.assertLess(points[:, 2].min(), 3.4)
+        self.assertGreater(points[:, 2].max(), 3.4)
+        colors = np.concatenate(
+            [part.triangles.reshape(-1, 3) for part in model.parts if part.role == "filament"]
+        )
+        self.assertGreater(points[:, 2].min(), colors[:, 2].max())
         from lentic.export import _print_notes
 
         self.assertIn("0.40 mm wide and 0.20 mm tall", _print_notes(model, []))
@@ -266,13 +275,38 @@ class TestBuild(unittest.TestCase):
             crest_width_mm=0.4,
             crest_height_mm=0.2,
         )
-        black = next(part for part in model.parts if part.role == "filament" and part.rgb == (0, 0, 0))
+        black = next(part for part in model.parts if part.role == "crest")
         self.assertAlmostEqual(mesh_volume(black.triangles), 0.4 * 8.0 * 0.2, places=4)
         points = black.triangles.reshape(-1, 3)
         self.assertAlmostEqual(points[:, 0].min(), 0.0, places=3)
         self.assertAlmostEqual(points[:, 0].max(), 8.0, places=3)
         self.assertAlmostEqual(points[:, 1].min(), 1.8, places=3)
         self.assertAlmostEqual(points[:, 1].max(), 2.2, places=3)
+
+    def test_a_black_crest_stays_its_own_part_above_black_plastic(self):
+        black = np.zeros((2, 1), dtype=np.int32)
+        red = np.ones((2, 1), dtype=np.int32)
+        model = build_from_indices(
+            [black, red],
+            np.array([[0, 0, 0], [255, 0, 0]], dtype=np.uint8),
+            width_mm=4,
+            height_mm=2,
+            base_mm=0.8,
+            ridge_height_mm=3.2,
+            embed_mm=0.05,
+            seam_mm=0,
+            line_mm=0.5,
+            crest_line=True,
+            crest_rgb=(0, 0, 0),
+            crest_width_mm=0.4,
+            crest_height_mm=0.2,
+            layer_height_mm=0.2,
+            initial_layer_mm=0.2,
+        )
+        crest = [part for part in model.parts if part.role == "crest"]
+        self.assertEqual(len(crest), 1)
+        picture = next(part for part in model.parts if part.role == "filament" and part.rgb == (0, 0, 0))
+        self.assertGreater(crest[0].triangles[:, :, 2].min(), picture.triangles[:, :, 2].max())
 
     def test_a_crest_line_wider_than_the_pitch_is_rejected(self):
         left = np.zeros((1, 1), dtype=np.int32)

@@ -179,6 +179,8 @@ def build_from_indices(
     crest_rgb: tuple[int, int, int] = (0, 0, 0),
     crest_width_mm: float = 0.4,
     crest_height_mm: float = 0.2,
+    layer_height_mm: float = 0.2,
+    initial_layer_mm: float = 0.2,
 ) -> LenticModel:
     if len(indices) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
@@ -204,6 +206,8 @@ def build_from_indices(
             crest_rgb=crest_rgb,
             crest_width_mm=crest_width_mm,
             crest_height_mm=crest_height_mm,
+            layer_height_mm=layer_height_mm,
+            initial_layer_mm=initial_layer_mm,
         )
         if magnets is not None:
             _install_magnets(model, magnets)
@@ -321,10 +325,22 @@ def build_from_indices(
     if crest_line:
         _check_crest(grid.pitch_mm, crest_width_mm, crest_height_mm)
         crest_color = tuple(int(channel) for channel in crest_rgb)
-        _add_filament(
-            parts,
-            crest_color,
-            _crest_boxes(grid, base_mm, embed_mm, len(indices), line_mm, crest_width_mm, crest_height_mm),
+        parts.append(
+            MeshPart(
+                "crest",
+                crest_color,
+                _crest_boxes(
+                    grid,
+                    base_mm,
+                    embed_mm,
+                    len(indices),
+                    line_mm,
+                    crest_width_mm,
+                    crest_height_mm,
+                    layer_height_mm,
+                    initial_layer_mm,
+                ),
+            )
         )
 
     previews = [palette[view] for view in indices]
@@ -377,6 +393,8 @@ def build_from_images(
     crest_rgb: tuple[int, int, int] = (0, 0, 0),
     crest_width_mm: float = 0.4,
     crest_height_mm: float = 0.2,
+    layer_height_mm: float = 0.2,
+    initial_layer_mm: float = 0.2,
 ) -> LenticModel:
     if len(paths) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
@@ -440,6 +458,8 @@ def build_from_images(
         crest_rgb=crest_rgb,
         crest_width_mm=crest_width_mm,
         crest_height_mm=crest_height_mm,
+        layer_height_mm=layer_height_mm,
+        initial_layer_mm=initial_layer_mm,
     )
 
 
@@ -460,6 +480,8 @@ def _build_horizontal(
     crest_rgb: tuple[int, int, int] = (0, 0, 0),
     crest_width_mm: float = 0.4,
     crest_height_mm: float = 0.2,
+    layer_height_mm: float = 0.2,
+    initial_layer_mm: float = 0.2,
 ) -> LenticModel:
     """Ridges run across the width. The first picture faces down, the last faces up.
 
@@ -483,6 +505,8 @@ def _build_horizontal(
         crest_rgb=crest_rgb,
         crest_width_mm=crest_width_mm,
         crest_height_mm=crest_height_mm,
+        layer_height_mm=layer_height_mm,
+        initial_layer_mm=initial_layer_mm,
     )
     for part in model.parts:
         part.triangles = _swap_xy(part.triangles)
@@ -556,6 +580,41 @@ def _crest_top(pitch: float, foot: float, peak: float, n_images: int, line_mm: f
     return peak
 
 
+def _crest_span(
+    shelf: float,
+    initial: float,
+    layer: float,
+    thickness: float,
+) -> tuple[float, float]:
+    """Lift the crest onto the first slice layer that clears the pictures.
+
+    Layer tops are ``initial``, then ``initial + layer``, and so on. The box
+    stays strictly above the shelf and contains exactly one of those tops when
+    the crest is one layer tall, so the slicer cuts a straight line instead of
+    unioning it with the color underneath.
+    """
+    if initial <= 0 or layer <= 0 or thickness <= 0:
+        raise ValueError("layer height, initial layer height, and crest height must be greater than 0")
+    margin = min(0.02, layer * 0.25, thickness * 0.25)
+    if shelf < initial:
+        print_z = initial
+    else:
+        steps = int(math.floor((shelf - initial) / layer)) + 1
+        print_z = initial + steps * layer
+    z0 = print_z - thickness + margin
+    if z0 <= shelf:
+        z0 = shelf + margin
+    if z0 >= print_z:
+        print_z += layer
+        z0 = max(print_z - thickness + margin, shelf + margin)
+    z1 = z0 + thickness
+    if print_z <= z0:
+        z0 = print_z - margin
+    if print_z >= z1:
+        z1 = print_z + margin
+    return z0, z1
+
+
 def _crest_boxes(
     grid: Grid,
     base_mm: float,
@@ -564,34 +623,26 @@ def _crest_boxes(
     line_mm: float,
     width: float,
     height: float,
+    layer_height_mm: float,
+    initial_layer_mm: float,
 ) -> np.ndarray:
     foot = base_mm - embed_mm
     peak = base_mm + grid.ridge_height_mm
-    top = _crest_top(grid.pitch_mm, foot, peak, n_images, line_mm)
+    shelf = _crest_top(grid.pitch_mm, foot, peak, n_images, line_mm)
+    z0, z1 = _crest_span(shelf, initial_layer_mm, layer_height_mm, height)
     half = width / 2.0
     boxes = [
         box_mesh(
             (ridge + 0.5) * grid.pitch_mm - half,
             0.0,
-            top,
+            z0,
             (ridge + 0.5) * grid.pitch_mm + half,
             grid.height_mm,
-            top + height,
+            z1,
         )
         for ridge in range(grid.n_ridges)
     ]
     return np.ascontiguousarray(np.concatenate(boxes))
-
-
-def _add_filament(parts: list[MeshPart], rgb: tuple[int, int, int], triangles: np.ndarray) -> None:
-    """Keep one mesh per filament, so a black crest joins a black picture."""
-    color = tuple(int(channel) for channel in rgb)
-    for part in parts:
-        if part.role == "filament" and tuple(int(channel) for channel in part.rgb) == color:
-            part.triangles = np.ascontiguousarray(np.concatenate([part.triangles, triangles]))
-            part.rgb = color
-            return
-    parts.append(MeshPart("filament", color, triangles))
 
 
 def _check_magnets(spec: MagnetSpec) -> None:

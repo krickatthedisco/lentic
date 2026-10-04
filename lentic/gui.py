@@ -107,6 +107,8 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 crest_rgb=parse_hex(fields.get("crest_color") or "#000000"),
                 crest_width_mm=_millimeters(fields, "crest_width") if _flag(fields, "crest_line", default=False) else 0.4,
                 crest_height_mm=_millimeters(fields, "crest_height") if _flag(fields, "crest_line", default=False) else 0.2,
+                layer_height_mm=_optional_mm(fields, "layer_height", 0.2),
+                initial_layer_mm=_optional_mm(fields, "initial_layer", 0.2),
             )
         except (OSError, ValueError) as exc:
             if isinstance(exc, ValueError):
@@ -272,6 +274,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(body)
+
+
+def _optional_mm(fields: dict[str, str], key: str, default: float) -> float:
+    text = (fields.get(key) or "").strip()
+    if not text:
+        return default
+    return _millimeters(fields, key)
 
 
 def _nozzle(fields: dict[str, str]) -> float:

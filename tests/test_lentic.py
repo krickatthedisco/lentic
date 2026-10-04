@@ -547,6 +547,54 @@ class TestMagnets(unittest.TestCase):
         self.assertAlmostEqual(floor[:, 0].max() - floor[:, 0].min(), 4.4, places=3)
         self.assertAlmostEqual(floor[:, 1].max() - floor[:, 1].min(), 12.4, places=3)
 
+    def test_zero_below_opens_the_pockets_through_the_bed(self):
+        spec = MagnetSpec(
+            count=2,
+            shape="round",
+            thickness_mm=2,
+            below_mm=0,
+            above_mm=0.8,
+            diameter_mm=6,
+            arrangement="across",
+        )
+        model = self._plate(width_mm=80, height_mm=40, magnets=spec)
+        self.assertAlmostEqual(model.base_mm, 2.8)
+        base = next(part for part in model.parts if part.role == "base")
+        radius = (6 + spec.clearance_mm) / 2
+        area = 32 * radius * radius * math.tan(math.pi / 32)
+        expected = 80 * 40 * 2.8 - 2 * area * 2
+        self.assertAlmostEqual(mesh_volume(base.triangles), expected, delta=0.05)
+        for place in model.magnet_places:
+            self.assertFalse(_covers(base.triangles, place[0], place[1], 0.0))
+            self.assertTrue(_covers(base.triangles, place[0], place[1], spec.thickness_mm))
+        from lentic.export import _print_notes
+
+        self.assertIn("Glue the magnets in after the print", _print_notes(model, []))
+
+    def test_zero_below_rectangular_pocket_matches_the_magnet(self):
+        spec = MagnetSpec(
+            count=1,
+            shape="rect",
+            thickness_mm=2,
+            below_mm=0,
+            above_mm=0.6,
+            width_mm=10,
+            length_mm=5,
+        )
+        model = self._plate(magnets=spec)
+        base = next(part for part in model.parts if part.role == "base")
+        hole_w = 10 + spec.clearance_mm
+        hole_h = 5 + spec.clearance_mm
+        expected = 40 * 20 * 2.6 - hole_w * hole_h * 2
+        self.assertAlmostEqual(mesh_volume(base.triangles), expected, places=3)
+        place = model.magnet_places[0]
+        self.assertFalse(_covers(base.triangles, place[0], place[1], 0.0))
+
+    def test_negative_plastic_below_the_magnets_is_rejected(self):
+        spec = MagnetSpec(count=1, shape="round", thickness_mm=2, below_mm=-0.2, above_mm=0.4, diameter_mm=6)
+        with self.assertRaises(ValueError):
+            self._plate(magnets=spec)
+
     def test_horizontal_plate_keeps_the_pockets(self):
         spec = MagnetSpec(count=2, shape="rect", thickness_mm=1, below_mm=0.6, above_mm=0.7, width_mm=8, length_mm=4)
         model = self._plate(orientation="horizontal", magnets=spec)
@@ -555,6 +603,31 @@ class TestMagnets(unittest.TestCase):
         base = next(part for part in model.parts if part.role == "base")
         hole = (8 + spec.clearance_mm) * (4 + spec.clearance_mm) * 1
         self.assertAlmostEqual(mesh_volume(base.triangles), 40 * 20 * 2.3 - 2 * hole, places=3)
+
+
+def _covers(triangles: np.ndarray, x: float, y: float, z: float) -> bool:
+    layer = triangles[np.all(np.abs(triangles[:, :, 2] - z) < 1e-6, axis=1)]
+    for corner_a, corner_b, corner_c in layer:
+        if _inside_triangle(x, y, corner_a, corner_b, corner_c):
+            return True
+    return False
+
+
+def _inside_triangle(px: float, py: float, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> bool:
+    v0x, v0y = c[0] - a[0], c[1] - a[1]
+    v1x, v1y = b[0] - a[0], b[1] - a[1]
+    v2x, v2y = px - a[0], py - a[1]
+    dot00 = v0x * v0x + v0y * v0y
+    dot01 = v0x * v1x + v0y * v1y
+    dot02 = v0x * v2x + v0y * v2y
+    dot11 = v1x * v1x + v1y * v1y
+    dot12 = v1x * v2x + v1y * v2y
+    denom = dot00 * dot11 - dot01 * dot01
+    if abs(denom) < 1e-18:
+        return False
+    along_c = (dot11 * dot02 - dot01 * dot12) / denom
+    along_b = (dot00 * dot12 - dot01 * dot02) / denom
+    return along_c >= -1e-8 and along_b >= -1e-8 and along_c + along_b <= 1 + 1e-8
 
 
 if __name__ == "__main__":

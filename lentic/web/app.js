@@ -90,6 +90,14 @@ function numberValue(id) {
   return value;
 }
 
+function millimetersOrZero(id, message) {
+  const value = Number(document.getElementById(id).value);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(message);
+  }
+  return value;
+}
+
 function formData() {
   const data = new FormData();
   data.set("width", String(numberValue("width")));
@@ -107,7 +115,7 @@ function formData() {
     const shape = document.getElementById("magnet-shape").value;
     data.set("magnet_count", String(numberValue("magnet-count")));
     data.set("magnet_shape", shape);
-    data.set("magnet_below", String(numberValue("magnet-below")));
+    data.set("magnet_below", String(millimetersOrZero("magnet-below", "Thickness below the magnets needs zero or more millimeters.")));
     data.set("magnet_above", String(numberValue("magnet-above")));
     data.set("magnet_arrange", document.getElementById("magnet-arrange").value);
     const edge = Number(document.getElementById("magnet-edge").value);
@@ -241,7 +249,11 @@ function showPlate(buffer) {
     `${meta.width_mm.toFixed(1)} x ${meta.height_mm.toFixed(1)} x ${meta.depth_mm.toFixed(1)} mm, ` +
     `${meta.ridges} x ${meta.rows} picture at ${meta.pitch_mm.toFixed(2)} mm ridges and ${meta.row_mm.toFixed(2)} mm rows.`;
   if (meta.magnets) {
-    status.textContent += ` Pause at ${meta.magnets.pause_mm.toFixed(1)} mm to drop in the magnets.`;
+    if (meta.magnets.below_mm === 0) {
+      status.textContent += " Glue the magnets in from the back after the print.";
+    } else {
+      status.textContent += ` Pause at ${meta.magnets.pause_mm.toFixed(1)} mm to drop in the magnets.`;
+    }
   }
   const sizeKey = `${meta.width_mm.toFixed(2)}x${meta.height_mm.toFixed(2)}`;
   if (!framed || sizeKey !== framedSize) frame(framed);

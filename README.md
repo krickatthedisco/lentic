@@ -22,6 +22,12 @@ From the left you see the first image. From the right you see the second. **Top 
 
 ## Run it
 
+### Windows, without installing Python
+
+Download `Lentic.exe` from the [latest release](https://github.com/krickatthedisco/lentic/releases/latest) and double-click it. Leave that window open while you design, and close it when you are done. The page stays on your computer.
+
+macOS and Linux, and anyone who wants to change the program, use the Python steps below. It is the same program either way.
+
 Install [Python 3.10 or newer](https://www.python.org/downloads/). On Windows, check **Add python.exe to PATH** on the first installer screen.
 
 Download this repository with the green **Code** button, then **Download ZIP**, and unzip it. Or, if you use Git:
@@ -45,7 +51,7 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 - **Left and right** or **Top and bottom** chooses which way the pictures switch.
 - Each picture can be words instead of a photo. Type the text, pick an open-source font, choose the letter and background colors, then **Use this text**.
 - **Use my filament colors** prints with the spools you pick. Add or remove colors, up to eight. Leave it off and Lentic chooses the colors from the pictures.
-- **Add magnet pockets** cuts holes in the base. Pick how many, then a round magnet (diameter and thickness) or a rectangular one (width, length, and thickness). **Thickness below magnets** and **Thickness above magnets** set the plastic on each side, and the base thickness becomes the sum. **Arrangement** lines them up across the width, down the height, in a grid, or centered in a cluster. **Distance from edge** is the plastic between the outer holes and the rim. **Rotate rectangular magnets** turns each one. **Show magnet locations** draws the pockets through the plate. Pause when the pocket is full, drop the magnets in, and let the print cover them.
+- **Add magnet pockets** cuts holes in the base. Pick how many, then a round magnet (diameter and thickness) or a rectangular one (width, length, and thickness). **Thickness below magnets** and **Thickness above magnets** set the plastic on each side, and the base thickness becomes the sum. **Arrangement** lines them up across the width, down the height, in a grid, or centered in a cluster. **Distance from edge** is the plastic between the outer holes and the rim. **Rotate rectangular magnets** turns each one. **Show magnet locations** draws the pockets through the plate. Pause when the pocket is full, drop the magnets in, and let the print cover them. Set **Thickness below magnets** to 0 to leave the pockets open, then glue the magnets in from the back after the print.
 - **Maintain aspect ratio** keeps the plate the same shape as the first picture. Editing width or height updates the other.
 - Drag the frame on a picture to crop it. The frame matches the plate, so the rest of the photo is not silently cut off. Corner handles resize it. **Reset crop** uses the whole picture again.
 - Ridge pitch and row size are the resolution. A larger plate keeps the same pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. Rows stay 0.4 mm.

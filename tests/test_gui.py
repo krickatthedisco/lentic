@@ -113,6 +113,7 @@ class TestGuiServer(unittest.TestCase):
         self.assertIn("Use my filament colors", html)
         self.assertIn("Add magnet pockets", html)
         self.assertIn("Thickness below magnets", html)
+        self.assertIn("glue the magnets in from the back after the print is complete", html)
         self.assertIn("Thickness above magnets", html)
         self.assertIn("Show magnet locations", html)
         self.assertIn("Along the width", html)

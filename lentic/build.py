@@ -16,7 +16,16 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from lentic.color import as_rgb_array, choose_palette, floyd_steinberg, nearest_indices
-from lentic.mesh import box_mesh, cylinder_cavity, extrude_ring, extrude_trapezoids, extrude_xz, facet_profiles
+from lentic.mesh import (
+    box_mesh,
+    circle_polygon,
+    cylinder_cavity,
+    extrude_ring,
+    extrude_trapezoids,
+    extrude_xz,
+    facet_profiles,
+    open_pocket_base,
+)
 
 # A 0.4 mm nozzle lays a line about this wide. The crest is cut off where a
 # slope would be thinner than that, so the slicer does not print the other
@@ -501,8 +510,10 @@ def _check_magnets(spec: MagnetSpec) -> None:
         raise ValueError("distance from the edge must be zero or more")
     if spec.count < 1 or spec.count > 24:
         raise ValueError("magnet count must be from 1 to 24")
-    if spec.thickness_mm <= 0 or spec.below_mm <= 0 or spec.above_mm <= 0:
-        raise ValueError("magnet thickness, and the plastic above and below, must be greater than 0")
+    if spec.thickness_mm <= 0 or spec.above_mm <= 0:
+        raise ValueError("magnet thickness, and the plastic above the magnets, must be greater than 0")
+    if spec.below_mm < 0:
+        raise ValueError("thickness below the magnets must be zero or more")
     if spec.shape == "round" and spec.diameter_mm <= 0:
         raise ValueError("magnet diameter must be greater than 0")
     if spec.shape == "rect" and (spec.width_mm <= 0 or spec.length_mm <= 0):
@@ -525,28 +536,51 @@ def _install_magnets(model: LenticModel, spec: MagnetSpec) -> None:
     )
     z0 = spec.below_mm
     z1 = spec.below_mm + spec.thickness_mm
-    if spec.shape == "round":
-        radius = hole_w / 2.0
-        holes = [cylinder_cavity(cx, cy, radius, z0, z1) for cx, cy in centers]
-    else:
-        holes = [
-            np.ascontiguousarray(
-                box_mesh(
-                    cx - hole_w / 2.0,
-                    cy - hole_h / 2.0,
-                    z0,
-                    cx + hole_w / 2.0,
-                    cy + hole_h / 2.0,
-                    z1,
-                )[:, ::-1, :]
-            )
-            for cx, cy in centers
-        ]
-    outer = box_mesh(0.0, 0.0, 0.0, width, height, model.base_mm)
     base = next(part for part in model.parts if part.role == "base")
-    base.triangles = np.ascontiguousarray(np.concatenate([outer, *holes]))
+    if spec.below_mm == 0:
+        base.triangles = open_pocket_base(width, height, model.base_mm, z1, _hole_outlines(spec, centers, hole_w, hole_h))
+    else:
+        if spec.shape == "round":
+            radius = hole_w / 2.0
+            holes = [cylinder_cavity(cx, cy, radius, z0, z1) for cx, cy in centers]
+        else:
+            holes = [
+                np.ascontiguousarray(
+                    box_mesh(
+                        cx - hole_w / 2.0,
+                        cy - hole_h / 2.0,
+                        z0,
+                        cx + hole_w / 2.0,
+                        cy + hole_h / 2.0,
+                        z1,
+                    )[:, ::-1, :]
+                )
+                for cx, cy in centers
+            ]
+        outer = box_mesh(0.0, 0.0, 0.0, width, height, model.base_mm)
+        base.triangles = np.ascontiguousarray(np.concatenate([outer, *holes]))
     model.magnets = spec
     model.magnet_places = centers
+
+
+def _hole_outlines(
+    spec: MagnetSpec,
+    centers: list[tuple[float, float]],
+    hole_w: float,
+    hole_h: float,
+) -> list[np.ndarray]:
+    """Counter-clockwise outlines of the pockets, in the plate's XY plane."""
+    rings = []
+    for cx, cy in centers:
+        if spec.shape == "round":
+            rings.append(circle_polygon(cx, cy, hole_w / 2.0))
+        else:
+            x0 = cx - hole_w / 2.0
+            x1 = cx + hole_w / 2.0
+            y0 = cy - hole_h / 2.0
+            y1 = cy + hole_h / 2.0
+            rings.append(np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float64))
+    return rings
 
 
 def _magnet_centers(

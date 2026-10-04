@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import socket
 import struct
 import sys
 import tempfile
+import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -35,10 +37,10 @@ def launch(port: int = 8765, open_browser: bool = True) -> None:
     except OSError:
         server = make_server("127.0.0.1", 0)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
-    print(f"Lentic is open at {url}")
-    print("Close this window with Ctrl+C.")
+    print(f"Lentic is open at {url}", flush=True)
+    print("Leave this window open while you design. Close it when you are done.", flush=True)
     if open_browser:
-        webbrowser.open(url)
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -47,8 +49,17 @@ def launch(port: int = 8765, open_browser: bool = True) -> None:
         server.server_close()
 
 
+class _Server(ThreadingHTTPServer):
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
 def make_server(host: str, port: int) -> ThreadingHTTPServer:
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = _Server((host, port), Handler)
     server.daemon_threads = True
     return server
 
@@ -310,7 +321,7 @@ def _magnets(fields: dict[str, str]) -> MagnetSpec | None:
         raise ValueError("magnet shape must be round or rectangular")
     count = _whole_number(fields, "magnet_count", "magnet count", 1, 24)
     thickness = _millimeters(fields, "magnet_thickness")
-    below = _millimeters(fields, "magnet_below")
+    below = _millimeters_allowing_zero(fields, "magnet_below", "thickness below magnets")
     above = _millimeters(fields, "magnet_above")
     arrangement = (fields.get("magnet_arrange") or "grid").strip().lower()
     if arrangement == "centered":
@@ -342,6 +353,16 @@ def _magnets(fields: dict[str, str]) -> MagnetSpec | None:
         turned=turned,
         edge_mm=edge,
     )
+
+
+def _millimeters_allowing_zero(fields: dict[str, str], key: str, label: str) -> float:
+    try:
+        value = float(fields[key])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"{label} must be a number of millimeters") from None
+    if value < 0:
+        raise ValueError(f"{label} must be zero or more")
+    return value
 
 
 def _millimeters_or_zero(fields: dict[str, str], key: str) -> float:

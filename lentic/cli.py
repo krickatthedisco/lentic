@@ -28,6 +28,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("images", nargs="*", help="left, right, and optional front image")
     parser.add_argument("--demo", action="store_true", help="export a red-circle / cyan-diamond sample")
     parser.add_argument("--gui", action="store_true", help="open the design window in a browser")
+    parser.add_argument("--port", type=int, default=8765, help="port for the design window")
     parser.add_argument(
         "--horizontal",
         action="store_true",
@@ -52,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.gui:
         from lentic.gui import launch
 
-        launch()
+        launch(port=args.port)
         return 0
 
     try:

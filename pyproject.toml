@@ -1,0 +1,22 @@
+[project]
+name = "lentic"
+version = "0.1.0"
+description = "Color lenticular plates for multi-filament 3D printing."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Tyler" }]
+dependencies = ["numpy>=1.24", "pillow>=10"]
+
+[project.scripts]
+lentic = "lentic.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["lentic*"]
+
+[tool.setuptools.package-data]
+lentic = ["web/*", "web/vendor/*"]

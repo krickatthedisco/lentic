@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lentic</title>
+<link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<aside>
+  <h1>Lentic</h1>
+  <p class="lead" id="lead">Two pictures, one plate. The left slopes show the first picture and the right slopes show the second.</p>
+
+  <section>
+    <h2>Pictures</h2>
+    <div class="segment" role="group" aria-label="Which way the pictures switch">
+      <button type="button" id="orient-vertical" class="secondary" aria-pressed="true">Left and right</button>
+      <button type="button" id="orient-horizontal" class="secondary" aria-pressed="false">Top and bottom</button>
+    </div>
+    <p class="hint" id="orient-hint">Ridges run up and down. Tip the plate left or right to switch pictures.</p>
+    <div class="upload" id="slot-left">
+      <button type="button" id="pick-left">Upload left picture</button>
+      <input id="file-left" type="file" accept="image/*" hidden>
+      <div class="chosen" hidden>
+        <div class="crop-stage" id="crop-left">
+          <img id="thumb-left" alt="">
+          <div class="crop-box">
+            <i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i>
+          </div>
+        </div>
+        <div class="chosen-meta">
+          <span id="name-left"></span>
+          <button type="button" class="text" data-reset-crop="left">Reset crop</button>
+          <button type="button" class="text" data-clear="left">Remove</button>
+        </div>
+      </div>
+    </div>
+    <div class="upload" id="slot-right">
+      <button type="button" id="pick-right">Upload right picture</button>
+      <input id="file-right" type="file" accept="image/*" hidden>
+      <div class="chosen" hidden>
+        <div class="crop-stage" id="crop-right">
+          <img id="thumb-right" alt="">
+          <div class="crop-box">
+            <i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i>
+          </div>
+        </div>
+        <div class="chosen-meta">
+          <span id="name-right"></span>
+          <button type="button" class="text" data-reset-crop="right">Reset crop</button>
+          <button type="button" class="text" data-clear="right">Remove</button>
+        </div>
+      </div>
+    </div>
+    <div class="upload" id="slot-front">
+      <button type="button" id="pick-front">Upload front picture</button>
+      <input id="file-front" type="file" accept="image/*" hidden>
+      <div class="chosen" hidden>
+        <div class="crop-stage" id="crop-front">
+          <img id="thumb-front" alt="">
+          <div class="crop-box">
+            <i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i>
+          </div>
+        </div>
+        <div class="chosen-meta">
+          <span id="name-front"></span>
+          <button type="button" class="text" data-reset-crop="front">Reset crop</button>
+          <button type="button" class="text" data-clear="front">Remove</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint">Drag each frame to choose the part that prints. The frame matches the plate, so nothing else gets cut off. The front picture is optional and sits on the flat top of each ridge.</p>
+    <button type="button" id="sample" class="secondary">Load sample pictures</button>
+  </section>
+
+  <section>
+    <h2>Part size</h2>
+    <label>Width <span class="unit"><input id="width" type="number" min="5" step="0.1" value="80"> mm</span></label>
+    <label>Height <span class="unit"><input id="height" type="number" min="5" step="0.1" value="45"> mm</span></label>
+    <label class="check"><input id="lock-aspect" type="checkbox" checked> Maintain aspect ratio</label>
+    <p class="hint" id="aspect-hint">Editing width or height updates the other. A picture sets the proportion.</p>
+    <label>Base thickness <span class="unit"><input id="base" type="number" min="0.2" step="0.1" value="0.8"> mm</span></label>
+    <label>Ridge height <span class="unit"><input id="ridge" type="number" min="0.2" step="0.1" value="0.6"> mm</span></label>
+  </section>
+
+  <section>
+    <h2>Resolution</h2>
+    <label>Ridge pitch <span class="unit"><input id="pitch" type="number" min="0.4" step="0.1" value="0.8"> mm</span></label>
+    <label>Row size <span class="unit"><input id="row" type="number" min="0.2" step="0.1" value="0.4"> mm</span></label>
+    <p class="hint" id="resolution-hint">Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so 300 mm across holds far more of the picture than 80 mm. A 0.4 mm nozzle starts at 0.8 mm pitch and 0.4 mm rows. Raise the pitch toward 1.6 mm if a slope comes out too thin.</p>
+  </section>
+
+  <section>
+    <h2>Color</h2>
+    <label>Base color <span class="unit"><input id="base-color" type="color" value="#f4f1ea"></span></label>
+    <label>Filament colors <span class="unit"><input id="max-colors" type="number" min="1" max="8" step="1" value="4"></span></label>
+    <label class="check"><input id="dither" type="checkbox" checked> Dither photos onto the filaments</label>
+  </section>
+
+  <button type="button" id="export-stl" disabled>Export multi-part STL</button>
+  <p class="hint">One STL file. Each filament is a separate solid, named with its color, already in place.</p>
+  <p id="status" role="status">Upload a left picture and a right picture.</p>
+</aside>
+<main>
+  <div id="viewport">
+    <canvas id="view" tabindex="0" role="application" aria-label="Color 3D preview. Drag to rotate."></canvas>
+    <div id="hud">
+      <button type="button" id="reset-view" class="secondary">Reset view</button>
+      <p>Drag to rotate. Scroll to zoom.</p>
+      <ul id="swatches"></ul>
+    </div>
+  </div>
+</main>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

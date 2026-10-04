@@ -1,0 +1,150 @@
+"""Design window requests and the multi-part STL export."""
+
+from __future__ import annotations
+
+import io
+import json
+import struct
+import threading
+import unittest
+import urllib.request
+from pathlib import Path
+
+from PIL import Image
+
+from lentic.export import multipart_stl_bytes
+from lentic.gui import make_server, parse_form
+
+
+def _png(color: tuple[int, int, int]) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), color).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _multipart(fields: dict[str, str], files: dict[str, tuple[str, bytes]]) -> tuple[str, bytes]:
+    boundary = "----lenticTestBoundary7f3a"
+    chunks: list[bytes] = []
+    for key, value in fields.items():
+        chunks.append(
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{key}\"\r\n\r\n{value}\r\n".encode()
+        )
+    for key, (filename, data) in files.items():
+        chunks.append(
+            (
+                f"--{boundary}\r\n"
+                f"Content-Disposition: form-data; name=\"{key}\"; filename=\"{filename}\"\r\n"
+                "Content-Type: image/png\r\n\r\n"
+            ).encode()
+            + data
+            + b"\r\n"
+        )
+    chunks.append(f"--{boundary}--\r\n".encode())
+    return boundary, b"".join(chunks)
+
+
+def _plate_fields() -> dict[str, str]:
+    return {
+        "width": "8",
+        "height": "8",
+        "base": "0.8",
+        "ridge_height": "1.2",
+        "pitch": "4",
+        "row": "4",
+        "max_colors": "4",
+        "dither": "0",
+        "base_color": "#f4f1ea",
+    }
+
+
+class TestMultipartStl(unittest.TestCase):
+    def test_each_filament_is_its_own_solid(self):
+        from lentic.build import build_from_indices
+        import numpy as np
+
+        left = np.zeros((1, 2), dtype=np.int32)
+        right = np.ones((1, 2), dtype=np.int32)
+        palette = np.array([[255, 0, 0], [0, 0, 255]], dtype=np.uint8)
+        model = build_from_indices(
+            [left, right],
+            palette,
+            width_mm=4,
+            height_mm=2,
+            base_mm=0.8,
+            ridge_height_mm=1.2,
+            embed_mm=0,
+            seam_mm=0,
+        )
+        text = multipart_stl_bytes(model).decode("ascii")
+        solids = [line.split()[1] for line in text.splitlines() if line.startswith("solid ")]
+        self.assertEqual(solids, ["base_f4f1ea", "filament_ff0000", "filament_0000ff"])
+        self.assertEqual(text.count("endsolid "), 3)
+        self.assertEqual(text.count("endfacet"), sum(len(part.triangles) for part in model.parts))
+        self.assertTrue(text.startswith("solid base_f4f1ea\n"))
+
+
+class TestGuiServer(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd = make_server("127.0.0.1", 0)
+        cls.thread = threading.Thread(target=cls.httpd.serve_forever, daemon=True)
+        cls.thread.start()
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+    def test_page_has_upload_and_millimeter_controls(self):
+        html = urllib.request.urlopen(self.base + "/").read().decode("utf-8")
+        self.assertIn("Upload left picture", html)
+        self.assertIn("Upload right picture", html)
+        self.assertIn("Upload front picture", html)
+        self.assertIn("> mm<", html)
+        self.assertIn("Export multi-part STL", html)
+        self.assertIn("Maintain aspect ratio", html)
+        self.assertIn("Drag each frame", html)
+        self.assertIn("Top and bottom", html)
+        self.assertIn('id="pitch" type="number" min="0.4" step="0.1" value="0.8"', html)
+        self.assertIn('id="row" type="number" min="0.2" step="0.1" value="0.4"', html)
+        self.assertIn('id="view"', html)
+
+    def test_preview_and_export(self):
+        boundary, body = _multipart(
+            _plate_fields(),
+            {"left": ("left.png", _png((255, 0, 0))), "right": ("right.png", _png((0, 0, 255)))},
+        )
+        fields, files = parse_form(f"multipart/form-data; boundary={boundary}", body)
+        self.assertEqual(fields["width"], "8")
+        self.assertEqual(set(files), {"left", "right"})
+
+        preview = self._post("/api/preview", boundary, body)
+        self.assertEqual(preview.status, 200)
+        payload = preview.read()
+        meta_length = struct.unpack_from("<I", payload, 0)[0]
+        meta = json.loads(payload[4 : 4 + meta_length])
+        colors = {part["hex"] for part in meta["parts"]}
+        self.assertIn("#ff0000", colors)
+        self.assertIn("#0000ff", colors)
+        self.assertGreater(meta["parts"][0]["count"], 0)
+
+        exported = self._post("/api/export", boundary, body)
+        self.assertEqual(exported.status, 200)
+        self.assertIn("lentic-plate.stl", exported.headers.get("Content-Disposition", ""))
+        text = exported.read().decode("ascii")
+        self.assertGreaterEqual(len([line for line in text.splitlines() if line.startswith("solid ")]), 3)
+        self.assertIn("filament_ff0000", text)
+        self.assertIn("filament_0000ff", text)
+
+    def _post(self, path: str, boundary: str, body: bytes):
+        request = urllib.request.Request(
+            self.base + path,
+            data=body,
+            method="POST",
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        return urllib.request.urlopen(request)
+
+
+if __name__ == "__main__":
+    unittest.main()

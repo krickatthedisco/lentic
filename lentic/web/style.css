@@ -168,7 +168,8 @@ input[type="color"] { width: 42px; height: 28px; padding: 0; border: 1px solid #
   align-items: center;
   pointer-events: none;
 }
-#hud button, #hud ul { pointer-events: auto; }
+#hud button, #hud ul, #views { pointer-events: auto; }
+#views { display: flex; flex-direction: column; gap: 6px; }
 #hud p { margin: 0; color: #44403c; }
 #swatches { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
 #swatches li { display: flex; align-items: center; gap: 5px; background: rgba(247, 244, 238, 0.92); padding: 3px 7px; border-radius: 99px; }

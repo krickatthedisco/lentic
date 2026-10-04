@@ -54,6 +54,7 @@ controls.target.set(0, 1, 0);
 
 window.__lentic = {
   camera: () => camera.position.toArray(),
+  target: () => controls.target.toArray(),
   meshes: () => plate.children.length,
   status: () => status.textContent,
   magnetPlaces: () => (lastMeta && lastMeta.magnets ? lastMeta.magnets.places : null),
@@ -110,6 +111,12 @@ function formData() {
   data.set("dither", document.getElementById("dither").checked ? "1" : "0");
   data.set("base_color", document.getElementById("base-color").value);
   data.set("orientation", orientation);
+  data.set("crest_line", document.getElementById("crest-line").checked ? "1" : "0");
+  if (document.getElementById("crest-line").checked) {
+    data.set("crest_color", document.getElementById("crest-color").value);
+    data.set("crest_width", String(numberValue("crest-width")));
+    data.set("crest_height", String(numberValue("crest-height")));
+  }
   data.set("magnets", document.getElementById("magnets").checked ? "1" : "0");
   if (document.getElementById("magnets").checked) {
     const shape = document.getElementById("magnet-shape").value;
@@ -356,6 +363,12 @@ function renderSwatches(parts) {
   }
 }
 
+function alignOrbit(up) {
+  camera.up.copy(up);
+  controls._quat.setFromUnitVectors(camera.up, new THREE.Vector3(0, 1, 0));
+  controls._quatInverse.copy(controls._quat).invert();
+}
+
 function frame(keepAngle) {
   const box = new THREE.Box3().setFromObject(plate);
   if (box.isEmpty()) return;
@@ -365,6 +378,7 @@ function frame(keepAngle) {
   const offset = camera.position.clone().sub(controls.target);
   const fit = span * 1.7;
   controls.target.copy(center);
+  if (!keepAngle) alignOrbit(new THREE.Vector3(0, 1, 0));
   if (keepAngle && offset.lengthSq() > 1e-4) {
     const distance = Math.max(offset.length(), fit);
     camera.position.copy(center).addScaledVector(offset.normalize(), distance);
@@ -373,6 +387,29 @@ function frame(keepAngle) {
   }
   camera.near = Math.max(span / 200, 0.01);
   camera.far = Math.max(span * 40, camera.position.distanceTo(center) * 8);
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+function lookFrom(direction) {
+  const box = new THREE.Box3().setFromObject(plate);
+  if (box.isEmpty()) return;
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const span = Math.max(size.x, size.y, size.z, 1);
+  const distance = span * 2.4;
+  const lift = Math.cos(Math.PI / 4) * distance;
+  const side = Math.sin(Math.PI / 4) * distance;
+  controls.target.copy(center);
+  // The picture's top is -Z. Left and right views stand that edge upright.
+  if (direction === "left" || direction === "right") alignOrbit(new THREE.Vector3(0, 0, -1));
+  else alignOrbit(new THREE.Vector3(0, 1, 0));
+  if (direction === "left") camera.position.set(center.x - side, center.y + lift, center.z);
+  else if (direction === "right") camera.position.set(center.x + side, center.y + lift, center.z);
+  else if (direction === "top") camera.position.set(center.x, center.y + lift, center.z - side);
+  else camera.position.set(center.x, center.y + lift, center.z + side);
+  camera.near = Math.max(span / 200, 0.01);
+  camera.far = Math.max(span * 40, distance * 8);
   camera.updateProjectionMatrix();
   controls.update();
 }
@@ -423,6 +460,8 @@ function applyOrientation() {
   document.getElementById("lead").textContent = horizontal
     ? "Two pictures, one plate. Looking from above shows the top picture. Looking from below shows the bottom picture."
     : "Two pictures, one plate. The left slopes show the first picture and the right slopes show the second.";
+  document.getElementById("view-first").textContent = horizontal ? "View from Top" : "View from Left";
+  document.getElementById("view-second").textContent = horizontal ? "View from Bottom" : "View from Right";
   document.getElementById("orient-hint").textContent = horizontal
     ? "Ridges run sideways. Tip the plate up or down to switch pictures, like a Clean / Dirty magnet."
     : "Ridges run up and down. Tip the plate left or right to switch pictures.";
@@ -687,6 +726,25 @@ document.getElementById("reset-view").addEventListener("click", () => {
   frame(false);
   framed = true;
 });
+document.getElementById("view-first").addEventListener("click", () => {
+  lookFrom(orientation === "horizontal" ? "top" : "left");
+});
+document.getElementById("view-second").addEventListener("click", () => {
+  lookFrom(orientation === "horizontal" ? "bottom" : "right");
+});
+
+function syncCrest() {
+  document.getElementById("crest-fields").hidden = !document.getElementById("crest-line").checked;
+}
+
+document.getElementById("crest-line").addEventListener("change", () => {
+  syncCrest();
+  schedule();
+});
+document.getElementById("crest-color").addEventListener("input", schedule);
+["crest-width", "crest-height"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", schedule);
+});
 
 exportButton.addEventListener("click", async () => {
   if (!pictures.left || !pictures.right) return;
@@ -877,3 +935,4 @@ document.getElementById("show-magnets").addEventListener("change", () => showMag
 renderSpools();
 applyOrientation();
 syncMagnets();
+syncCrest();

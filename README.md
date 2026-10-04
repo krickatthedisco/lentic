@@ -24,7 +24,11 @@ From the left you see the first image. From the right you see the second. **Top 
 
 ### Windows, without installing Python
 
-Download `Lentic.exe` from the [latest release](https://github.com/krickatthedisco/lentic/releases/latest) and double-click it. Leave that window open while you design, and close it when you are done. The page stays on your computer.
+[![Download Lentic.exe](https://img.shields.io/badge/Download-Lentic.exe-9a3412?style=for-the-badge)](https://github.com/krickatthedisco/lentic/releases/latest/download/Lentic.exe)
+
+Double-click `Lentic.exe`. Leave that window open while you design, and close it when you are done. The page stays on your computer.
+
+The same release includes [lentic-source.zip](https://github.com/krickatthedisco/lentic/releases/latest/download/lentic-source.zip) if you want the source.
 
 macOS and Linux, and anyone who wants to change the program, use the Python steps below. It is the same program either way.
 
@@ -55,7 +59,8 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 - **Maintain aspect ratio** keeps the plate the same shape as the first picture. Editing width or height updates the other.
 - Drag the frame on a picture to crop it. The frame matches the plate, so the rest of the photo is not silently cut off. Corner handles resize it. **Reset crop** uses the whole picture again.
 - Ridge pitch and row size are the resolution. A larger plate keeps the same pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. Rows stay 0.4 mm.
-- The view beside the controls is the actual plate. Drag to rotate, scroll to zoom. Each swatch is a filament, named from its color and labeled with the hex code.
+- **Add a crest line** lays one filament along the top of each ridge. It is off until you turn it on. It starts black, 0.4 mm wide and 0.2 mm tall, and both the size and the color can change. It prints as its own filament and hides the other picture when you tilt the plate.
+- The view beside the controls is the actual plate. Drag to rotate, scroll to zoom. **View from Left** and **View from Right** (or top and bottom) turn it 45 degrees so you can check one picture. Each swatch is a filament, named from its color and labeled with the hex code.
 
 **Export for slicer** downloads `lentic-plate.3mf`. It opens as one plate with one part per color, already assembled. Match each part to the filament named on it, then slice. Do not split the plate into shells. An STL cannot keep those colors as separate parts: a slicer breaks it into one piece per ridge.
 

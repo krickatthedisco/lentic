@@ -47,6 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--palette", help="comma-separated filament colors, for example #111111,#f5f5f5,#e63946")
     parser.add_argument("--max-colors", type=int, default=4, help="palette size when --palette is omitted")
     parser.add_argument("--no-dither", action="store_true", help="snap each pixel to the nearest filament with no dither")
+    parser.add_argument("--crest-line", action="store_true", help="add one filament line along the top of each ridge")
+    parser.add_argument("--crest-color", default="#000000", help="crest line color")
+    parser.add_argument("--crest-width", type=float, default=0.4, help="crest line width in millimeters")
+    parser.add_argument("--crest-height", type=float, default=0.2, help="crest line height in millimeters")
     if argv is None and getattr(sys, "frozen", False) and len(sys.argv) == 1:
         argv = ["--gui"]
     args = parser.parse_args(argv)
@@ -93,6 +97,10 @@ def main(argv: list[str] | None = None) -> int:
             dither=not args.no_dither,
             base_rgb=parse_hex(args.base_color),
             orientation="horizontal" if args.horizontal else "vertical",
+            crest_line=args.crest_line,
+            crest_rgb=parse_hex(args.crest_color),
+            crest_width_mm=args.crest_width,
+            crest_height_mm=args.crest_height,
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)

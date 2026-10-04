@@ -102,6 +102,10 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 crops=_crops(fields, order),
                 flips=_flips(fields, order),
                 magnets=_magnets(fields),
+                crest_line=_flag(fields, "crest_line", default=False),
+                crest_rgb=parse_hex(fields.get("crest_color") or "#000000"),
+                crest_width_mm=_millimeters(fields, "crest_width") if _flag(fields, "crest_line", default=False) else 0.4,
+                crest_height_mm=_millimeters(fields, "crest_height") if _flag(fields, "crest_line", default=False) else 0.2,
             )
         except (OSError, ValueError) as exc:
             if isinstance(exc, ValueError):

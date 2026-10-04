@@ -217,6 +217,76 @@ class TestBuild(unittest.TestCase):
         self.assertAlmostEqual(blue_top[:, 0].min(), center, places=4)
         self.assertAlmostEqual(blue_top[:, 0].max(), center + 0.5, places=4)
 
+    def test_a_crest_line_sits_on_the_flat(self):
+        left = np.zeros((1, 1), dtype=np.int32)
+        right = np.ones((1, 1), dtype=np.int32)
+        model = build_from_indices(
+            [left, right],
+            PALETTE[:2],
+            width_mm=4,
+            height_mm=2,
+            base_mm=0.8,
+            ridge_height_mm=3.2,
+            embed_mm=0.05,
+            seam_mm=0,
+            line_mm=0.5,
+            crest_line=True,
+            crest_rgb=(0, 0, 0),
+            crest_width_mm=0.4,
+            crest_height_mm=0.2,
+        )
+        black = next(part for part in model.parts if part.rgb == (0, 0, 0))
+        self.assertAlmostEqual(mesh_volume(black.triangles), 0.4 * 2.0 * 0.2, places=4)
+        points = black.triangles.reshape(-1, 3)
+        self.assertAlmostEqual(points[:, 0].min(), 1.8, places=4)
+        self.assertAlmostEqual(points[:, 0].max(), 2.2, places=4)
+        foot = 0.75
+        crest = foot + (2.0 - 0.5) / 2.0 * (model.base_mm + 3.2 - foot)
+        self.assertAlmostEqual(points[:, 2].min(), crest, places=4)
+        self.assertAlmostEqual(points[:, 2].max(), crest + 0.2, places=4)
+        from lentic.export import _print_notes
+
+        self.assertIn("0.40 mm wide and 0.20 mm tall", _print_notes(model, []))
+
+    def test_a_crest_line_follows_sideways_ridges(self):
+        left = np.zeros((1, 1), dtype=np.int32)
+        right = np.ones((1, 1), dtype=np.int32)
+        model = build_from_indices(
+            [left, right],
+            PALETTE[:2],
+            width_mm=8,
+            height_mm=4,
+            base_mm=0.8,
+            ridge_height_mm=3.2,
+            embed_mm=0.05,
+            seam_mm=0,
+            line_mm=0.5,
+            orientation="horizontal",
+            crest_line=True,
+            crest_width_mm=0.4,
+            crest_height_mm=0.2,
+        )
+        black = next(part for part in model.parts if part.rgb == (0, 0, 0))
+        self.assertAlmostEqual(mesh_volume(black.triangles), 0.4 * 8.0 * 0.2, places=4)
+        points = black.triangles.reshape(-1, 3)
+        self.assertAlmostEqual(points[:, 0].min(), 0.0, places=3)
+        self.assertAlmostEqual(points[:, 0].max(), 8.0, places=3)
+        self.assertAlmostEqual(points[:, 1].min(), 1.8, places=3)
+        self.assertAlmostEqual(points[:, 1].max(), 2.2, places=3)
+
+    def test_a_crest_line_wider_than_the_pitch_is_rejected(self):
+        left = np.zeros((1, 1), dtype=np.int32)
+        right = np.ones((1, 1), dtype=np.int32)
+        with self.assertRaises(ValueError):
+            build_from_indices(
+                [left, right],
+                PALETTE[:2],
+                width_mm=4,
+                height_mm=2,
+                crest_line=True,
+                crest_width_mm=4,
+            )
+
     def test_image_top_is_the_high_y_side(self):
         left = np.array([[0, 0], [1, 1]], dtype=np.int32)
         right = np.full((2, 2), 2, dtype=np.int32)

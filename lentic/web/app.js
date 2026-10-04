@@ -471,6 +471,12 @@ document.querySelectorAll("[data-clear]").forEach((button) => {
     imageAspects[slot] = null;
     cropCustom[slot] = false;
     document.getElementById(`file-${slot}`).value = "";
+    const thumb = document.getElementById(`thumb-${slot}`);
+    if (thumb.dataset.url) {
+      URL.revokeObjectURL(thumb.dataset.url);
+      delete thumb.dataset.url;
+    }
+    thumb.removeAttribute("src");
     document.querySelector(`#slot-${slot} .chosen`).hidden = true;
     schedule();
   });

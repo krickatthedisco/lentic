@@ -455,7 +455,12 @@ function idleStatus() {
 const LINES_PER_SLOPE = 5;
 
 function formatMm(value) {
-  return String(Math.round(value * 100) / 100);
+  return String(Math.round(value * 1000) / 1000);
+}
+
+function readMm(id) {
+  const value = Number(document.getElementById(id).value);
+  return Number.isFinite(value) ? value : 0;
 }
 
 function nozzlePreset() {
@@ -483,14 +488,23 @@ function applyNozzleDefaults() {
 }
 
 function writeResolutionHint() {
-  const preset = nozzlePreset();
-  const nozzle = formatMm(preset.nozzle);
-  const pitch = formatMm(preset.pitch);
-  const ridge = formatMm(preset.ridge);
-  const row = formatMm(preset.row);
-  document.getElementById("resolution-hint").textContent = orientation === "horizontal"
-    ? `Each row of the picture is one ridge. A larger plate keeps this pitch, so a tall plate holds far more detail. A ${nozzle} mm nozzle starts at a ${pitch} mm pitch, five lines on each slope, and a ${ridge} mm ridge.`
-    : `Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. A ${nozzle} mm nozzle starts at a ${pitch} mm pitch, five lines on each slope, and a ${ridge} mm ridge. The crest is cut flat one line in from each side, so the other picture is not printed on the tip. Rows stay ${row} mm.`;
+  const nozzle = readMm("nozzle");
+  const pitch = readMm("pitch");
+  const ridge = readMm("ridge");
+  const row = readMm("row");
+  const crestWidth = readMm("crest-width");
+  const crestHeight = readMm("crest-height");
+  const slope = pictures.front ? 0.25 : 0.5;
+  const lines = nozzle > 0 ? (pitch * slope) / nozzle : 0;
+  const flat = nozzle * 1.25;
+  const lead = orientation === "horizontal"
+    ? "Each row of the picture is one ridge. A larger plate keeps this pitch, so a tall plate holds far more detail."
+    : "Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture.";
+  document.getElementById("resolution-hint").textContent =
+    `${lead} This plate uses a ${formatMm(pitch)} mm pitch, a ${formatMm(ridge)} mm ridge, and ${formatMm(row)} mm rows. ` +
+    `Each slope is ${formatMm(lines)} lines of the ${formatMm(nozzle)} mm nozzle. ` +
+    `The tip is cut flat ${formatMm(flat)} mm in from each side. ` +
+    `The crest line, if you turn it on, is ${formatMm(crestWidth)} mm wide and ${formatMm(crestHeight)} mm tall.`;
 }
 
 function applyOrientation() {
@@ -615,6 +629,7 @@ async function measurePicture(slot, file) {
   }
   crops[slot] = maxCrop(imageAspects[slot], plateAspect());
   placeCrop(slot);
+  writeResolutionHint();
   schedule();
   void file;
 }
@@ -692,12 +707,16 @@ document.querySelectorAll("[data-clear]").forEach((button) => {
     }
     thumb.removeAttribute("src");
     document.querySelector(`#slot-${slot} .chosen`).hidden = true;
+    writeResolutionHint();
     schedule();
   });
 });
 
 ["base", "ridge", "pitch", "row", "max-colors", "base-color"].forEach((id) => {
-  document.getElementById(id).addEventListener("input", schedule);
+  document.getElementById(id).addEventListener("input", () => {
+    if (id === "ridge" || id === "pitch" || id === "row") writeResolutionHint();
+    schedule();
+  });
 });
 document.getElementById("base").addEventListener("input", () => {
   if (!document.getElementById("base").disabled) plainBase = document.getElementById("base").value;
@@ -787,7 +806,10 @@ document.getElementById("crest-line").addEventListener("change", () => {
 });
 document.getElementById("crest-color").addEventListener("input", schedule);
 ["crest-width", "crest-height"].forEach((id) => {
-  document.getElementById(id).addEventListener("input", schedule);
+  document.getElementById(id).addEventListener("input", () => {
+    writeResolutionHint();
+    schedule();
+  });
 });
 
 exportButton.addEventListener("click", async () => {

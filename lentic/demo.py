@@ -33,7 +33,7 @@ def run_demo(out_dir: str | Path, width_mm: float = 64.0) -> Path:
         lines_per_facet=2,
         palette=np.array([parse_hex(color) for color in PALETTE], dtype=np.uint8),
         dither=False,
-        base_rgb=parse_hex("#f4f1ea"),
+        base_rgb=parse_hex("#000000"),
     )
     return export_model(model, out)
 

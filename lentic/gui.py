@@ -97,7 +97,7 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 palette=_palette(fields),
                 max_colors=_max_colors(fields),
                 dither=_flag(fields, "dither", default=True),
-                base_rgb=parse_hex(fields.get("base_color") or "#f4f1ea"),
+                base_rgb=parse_hex(fields.get("base_color") or "#000000"),
                 nozzle_mm=_nozzle(fields),
                 orientation=orientation,
                 crops=_crops(fields, order),

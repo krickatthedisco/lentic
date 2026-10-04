@@ -78,10 +78,10 @@ class TestMultipartStl(unittest.TestCase):
         )
         text = multipart_stl_bytes(model).decode("ascii")
         solids = [line.split()[1] for line in text.splitlines() if line.startswith("solid ")]
-        self.assertEqual(solids, ["base_f4f1ea", "filament_ff0000", "filament_0000ff"])
+        self.assertEqual(solids, ["base_000000", "filament_ff0000", "filament_0000ff"])
         self.assertEqual(text.count("endsolid "), 3)
         self.assertEqual(text.count("endfacet"), sum(len(part.triangles) for part in model.parts))
-        self.assertTrue(text.startswith("solid base_f4f1ea\n"))
+        self.assertTrue(text.startswith("solid base_000000\n"))
 
 
 class TestGuiServer(unittest.TestCase):
@@ -137,6 +137,11 @@ class TestGuiServer(unittest.TestCase):
             "Selecting your nozzle size automatically sets the default values to match, further adjustments may still improve image quality so play around with the values",
             html,
         )
+        self.assertIn('id="base-color" type="color" value="#000000"', html)
+        self.assertIn("This plate uses a 4 mm pitch, a 3.2 mm ridge, and 0.4 mm rows.", html)
+        self.assertIn("Each slope is 5 lines of the 0.4 mm nozzle.", html)
+        self.assertIn("The tip is cut flat 0.5 mm in from each side.", html)
+        self.assertIn("The crest line, if you turn it on, is 0.4 mm wide and 0.2 mm tall.", html)
         self.assertIn('id="pitch" type="number" min="0.2" step="0.1" value="4"', html)
         self.assertIn('id="ridge" type="number" min="0.2" step="0.1" value="3.2"', html)
         self.assertIn('id="width" type="number" min="5" step="0.1" value="200"', html)

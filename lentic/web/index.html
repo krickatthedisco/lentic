@@ -178,12 +178,12 @@
     <p class="hint">Selecting your nozzle size automatically sets the default values to match, further adjustments may still improve image quality so play around with the values</p>
     <label>Ridge pitch <span class="unit"><input id="pitch" type="number" min="0.2" step="0.1" value="4"> mm</span></label>
     <label>Row size <span class="unit"><input id="row" type="number" min="0.2" step="0.1" value="0.4"> mm</span></label>
-    <p class="hint" id="resolution-hint">Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. The crest is cut flat one line in from each side, so the other picture is not printed on the tip. Rows stay 0.4 mm.</p>
+    <p class="hint" id="resolution-hint">Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. This plate uses a 4 mm pitch, a 3.2 mm ridge, and 0.4 mm rows. Each slope is 5 lines of the 0.4 mm nozzle. The tip is cut flat 0.5 mm in from each side. The crest line, if you turn it on, is 0.4 mm wide and 0.2 mm tall.</p>
   </section>
 
   <section>
     <h2>Color</h2>
-    <label>Base color <span class="unit"><input id="base-color" type="color" value="#f4f1ea"></span></label>
+    <label>Base color <span class="unit"><input id="base-color" type="color" value="#000000"></span></label>
     <label>Filament colors <span class="unit"><input id="max-colors" type="number" min="1" max="8" step="1" value="4"></span></label>
     <label class="check"><input id="use-spools" type="checkbox"> Use my filament colors</label>
     <div id="spools" hidden>

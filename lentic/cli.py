@@ -41,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--row", type=float, default=0.4, help="picture row height in millimeters")
     parser.add_argument("--ridge-height", type=float, help="slope height above the base; default is 0.8 x pitch")
     parser.add_argument("--base", type=float, default=0.8, help="backing thickness in millimeters")
-    parser.add_argument("--base-color", default="#f4f1ea", help="backing filament color")
+    parser.add_argument("--base-color", default="#000000", help="backing filament color")
     parser.add_argument("--nozzle", type=float, default=0.4, help="nozzle diameter used when pitch is omitted")
     parser.add_argument("--lines", type=int, default=5, help="extrusion lines per slope when pitch is omitted")
     parser.add_argument("--palette", help="comma-separated filament colors, for example #111111,#f5f5f5,#e63946")

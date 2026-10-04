@@ -235,7 +235,7 @@ class TestBuild(unittest.TestCase):
             crest_width_mm=0.4,
             crest_height_mm=0.2,
         )
-        black = next(part for part in model.parts if part.rgb == (0, 0, 0))
+        black = next(part for part in model.parts if part.role == "filament" and part.rgb == (0, 0, 0))
         self.assertAlmostEqual(mesh_volume(black.triangles), 0.4 * 2.0 * 0.2, places=4)
         points = black.triangles.reshape(-1, 3)
         self.assertAlmostEqual(points[:, 0].min(), 1.8, places=4)
@@ -266,7 +266,7 @@ class TestBuild(unittest.TestCase):
             crest_width_mm=0.4,
             crest_height_mm=0.2,
         )
-        black = next(part for part in model.parts if part.rgb == (0, 0, 0))
+        black = next(part for part in model.parts if part.role == "filament" and part.rgb == (0, 0, 0))
         self.assertAlmostEqual(mesh_volume(black.triangles), 0.4 * 8.0 * 0.2, places=4)
         points = black.triangles.reshape(-1, 3)
         self.assertAlmostEqual(points[:, 0].min(), 0.0, places=3)

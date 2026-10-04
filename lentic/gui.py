@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import struct
+import sys
 import tempfile
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,11 +14,17 @@ from urllib.parse import urlparse
 import numpy as np
 from PIL import Image
 
-from lentic.build import LenticModel, build_from_images
+from lentic.build import LenticModel, MagnetSpec, build_from_images
 from lentic.color import color_name, parse_hex, rgb_to_hex
 from lentic.export import plate_3mf_bytes
 
-WEB_ROOT = Path(__file__).resolve().parent / "web"
+def _web_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS")) / "web"
+    return Path(__file__).resolve().parent / "web"
+
+
+WEB_ROOT = _web_root()
 MAX_BODY = 32 * 1024 * 1024
 _SAMPLES: tuple[bytes, bytes] | None = None
 
@@ -83,6 +90,7 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 orientation=orientation,
                 crops=_crops(fields, order),
                 flips=_flips(fields, order),
+                magnets=_magnets(fields),
             )
         except (OSError, ValueError) as exc:
             if isinstance(exc, ValueError):
@@ -117,21 +125,38 @@ def pack_preview(model: LenticModel) -> bytes:
         )
         blobs.append(flat.tobytes())
         cursor += int(flat.shape[0])
-    meta = json.dumps(
-        {
-            "width_mm": round(width, 4),
-            "height_mm": round(height, 4),
-            "depth_mm": round(model.base_mm + model.grid.ridge_height_mm, 4),
-            "pitch_mm": round(model.grid.pitch_mm, 4),
-            "row_mm": round(model.grid.row_mm, 4),
-            "ridge_height_mm": round(model.grid.ridge_height_mm, 4),
-            "ridges": model.grid.n_ridges,
-            "rows": model.grid.n_rows,
-            "angles": list(model.angle_names),
-            "orientation": model.orientation,
-            "parts": parts,
+    payload = {
+        "width_mm": round(width, 4),
+        "height_mm": round(height, 4),
+        "depth_mm": round(model.base_mm + model.grid.ridge_height_mm, 4),
+        "pitch_mm": round(model.grid.pitch_mm, 4),
+        "row_mm": round(model.grid.row_mm, 4),
+        "ridge_height_mm": round(model.grid.ridge_height_mm, 4),
+        "ridges": model.grid.n_ridges,
+        "rows": model.grid.n_rows,
+        "angles": list(model.angle_names),
+        "orientation": model.orientation,
+        "base_mm": round(model.base_mm, 4),
+        "parts": parts,
+    }
+    if model.magnets is not None:
+        spec = model.magnets
+        hole_w, hole_h = spec.hole_span()
+        payload["magnets"] = {
+            "count": spec.count,
+            "shape": spec.shape,
+            "arrangement": spec.arrangement,
+            "pause_mm": round(spec.below_mm + spec.thickness_mm, 4),
+            "below_mm": round(spec.below_mm, 4),
+            "above_mm": round(spec.above_mm, 4),
+            "thickness_mm": round(spec.thickness_mm, 4),
+            "hole_w": round(hole_w, 4),
+            "hole_h": round(hole_h, 4),
+            "z0": round(spec.below_mm, 4),
+            "z1": round(spec.below_mm + spec.thickness_mm, 4),
+            "places": [[round(x, 3), round(y, 3)] for x, y in model.magnet_places],
         }
-    ).encode("utf-8")
+    meta = json.dumps(payload).encode("utf-8")
     pad = (4 - (len(meta) % 4)) % 4
     return struct.pack("<I", len(meta)) + meta + (b" " * pad) + b"".join(blobs)
 
@@ -188,6 +213,8 @@ class Handler(BaseHTTPRequestHandler):
             ".css": "text/css; charset=utf-8",
             ".js": "text/javascript; charset=utf-8",
             ".png": "image/png",
+            ".ttf": "font/ttf",
+            ".txt": "text/plain; charset=utf-8",
         }.get(file_path.suffix.lower(), "application/octet-stream")
         self._send(200, file_path.read_bytes(), kind)
 
@@ -269,6 +296,75 @@ def _orientation(fields: dict[str, str]) -> str:
     if value in {"vertical", "side", "left", ""}:
         return "vertical"
     raise ValueError("orientation must be vertical or horizontal")
+
+
+def _magnets(fields: dict[str, str]) -> MagnetSpec | None:
+    if not _flag(fields, "magnets", default=False):
+        return None
+    shape = (fields.get("magnet_shape") or "round").strip().lower()
+    if shape in {"round", "circle"}:
+        shape = "round"
+    elif shape in {"rect", "rectangular"}:
+        shape = "rect"
+    else:
+        raise ValueError("magnet shape must be round or rectangular")
+    count = _whole_number(fields, "magnet_count", "magnet count", 1, 24)
+    thickness = _millimeters(fields, "magnet_thickness")
+    below = _millimeters(fields, "magnet_below")
+    above = _millimeters(fields, "magnet_above")
+    arrangement = (fields.get("magnet_arrange") or "grid").strip().lower()
+    if arrangement == "centered":
+        arrangement = "center"
+    if arrangement not in {"across", "down", "grid", "center"}:
+        raise ValueError("magnet arrangement must be along the width, along the height, a grid, or centered")
+    turned = _flag(fields, "magnet_turn", default=False)
+    edge = _millimeters_or_zero(fields, "magnet_edge")
+    if shape == "round":
+        return MagnetSpec(
+            count=count,
+            shape=shape,
+            thickness_mm=thickness,
+            below_mm=below,
+            above_mm=above,
+            diameter_mm=_millimeters(fields, "magnet_diameter"),
+            arrangement=arrangement,
+            edge_mm=edge,
+        )
+    return MagnetSpec(
+        count=count,
+        shape=shape,
+        thickness_mm=thickness,
+        below_mm=below,
+        above_mm=above,
+        width_mm=_millimeters(fields, "magnet_width"),
+        length_mm=_millimeters(fields, "magnet_length"),
+        arrangement=arrangement,
+        turned=turned,
+        edge_mm=edge,
+    )
+
+
+def _millimeters_or_zero(fields: dict[str, str], key: str) -> float:
+    try:
+        value = float(fields.get(key) or "2.5")
+    except (TypeError, ValueError):
+        raise ValueError("distance from the edge must be a number of millimeters") from None
+    if value < 0:
+        raise ValueError("distance from the edge must be zero or more")
+    return value
+
+
+def _whole_number(fields: dict[str, str], key: str, label: str, low: int, high: int) -> int:
+    try:
+        value = float(fields[key])
+    except (KeyError, TypeError, ValueError):
+        raise ValueError(f"{label} must be a whole number") from None
+    if abs(value - round(value)) > 1e-6:
+        raise ValueError(f"{label} must be a whole number")
+    whole = int(round(value))
+    if whole < low or whole > high:
+        raise ValueError(f"{label} must be from {low} to {high}")
+    return whole
 
 
 def _palette(fields: dict[str, str]):

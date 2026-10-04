@@ -1,6 +1,6 @@
 [project]
 name = "lentic"
-version = "0.1.0"
+version = "0.2.0"
 description = "Color lenticular plates for multi-filament 3D printing."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,4 +19,4 @@ build-backend = "setuptools.build_meta"
 include = ["lentic*"]
 
 [tool.setuptools.package-data]
-lentic = ["web/*", "web/vendor/*"]
+lentic = ["web/*", "web/vendor/*", "web/fonts/*"]

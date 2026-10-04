@@ -43,9 +43,12 @@ chmod +x start.sh
 The page stays on your computer, at `127.0.0.1`. Upload a picture for each view. Every size is in millimeters.
 
 - **Left and right** or **Top and bottom** chooses which way the pictures switch.
+- Each picture can be words instead of a photo. Type the text, pick an open-source font, choose the letter and background colors, then **Use this text**.
+- **Use my filament colors** prints with the spools you pick. Add or remove colors, up to eight. Leave it off and Lentic chooses the colors from the pictures.
+- **Add magnet pockets** cuts holes in the base. Pick how many, then a round magnet (diameter and thickness) or a rectangular one (width, length, and thickness). **Thickness below magnets** and **Thickness above magnets** set the plastic on each side, and the base thickness becomes the sum. **Arrangement** lines them up across the width, down the height, in a grid, or centered in a cluster. **Distance from edge** is the plastic between the outer holes and the rim. **Rotate rectangular magnets** turns each one. **Show magnet locations** draws the pockets through the plate. Pause when the pocket is full, drop the magnets in, and let the print cover them.
 - **Maintain aspect ratio** keeps the plate the same shape as the first picture. Editing width or height updates the other.
 - Drag the frame on a picture to crop it. The frame matches the plate, so the rest of the photo is not silently cut off. Corner handles resize it. **Reset crop** uses the whole picture again.
-- Ridge pitch and row size are the resolution. A larger plate keeps the same pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 0.8 mm pitch and 0.4 mm rows.
+- Ridge pitch and row size are the resolution. A larger plate keeps the same pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. Rows stay 0.4 mm.
 - The view beside the controls is the actual plate. Drag to rotate, scroll to zoom. Each swatch is a filament, named from its color and labeled with the hex code.
 
 **Export for slicer** downloads `lentic-plate.3mf`. It opens as one plate with one part per color, already assembled. Match each part to the filament named on it, then slice. Do not split the plate into shells. An STL cannot keep those colors as separate parts: a slicer breaks it into one piece per ridge.
@@ -89,11 +92,11 @@ Open `preview.html` in that folder and drag the slider. That is the ideal view o
 1. Open `model.3mf`. It is one plate, already split into one part per color.
 2. Match each part to the filament named on it. Do not split the plate into shells.
 3. Leave the plate flat, ridges up. Standing it on its side ruins the flip.
-4. Slice. A 0.4 mm nozzle can print one line on each slope, so two pictures default to a 0.8 mm ridge and 0.4 mm rows. If a slope comes out too thin, raise `--pitch` or `--lines` (1.6 mm is two lines on each slope). If the flip is weak, raise `--ridge-height`.
+4. Slice at 0.2 mm layers with a 0.4 mm nozzle. Two pictures start at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge, so a side view shows one picture. Rows are 0.4 mm. If the flip is weak, raise `--ridge-height`.
 
 Photos are posterized down to the filament count. Simple graphics with a few flat colors stay much cleaner. `--max-colors` can go up to the number of filaments you actually have.
 
-Ridge pitch defaults to `nozzle × lines × number of images` (0.4 × 1 × 2 = 0.8 mm). Rows default to the nozzle width, 0.4 mm. Pass `--pitch` or `--row` to override them.
+Ridge pitch defaults to `nozzle × lines × number of images` (0.4 × 5 × 2 = 4.0 mm). Rows default to the nozzle width, 0.4 mm. Pass `--pitch`, `--lines`, or `--row` to override them.
 
 ## License
 

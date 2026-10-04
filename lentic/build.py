@@ -8,6 +8,7 @@ can print them.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,7 +16,12 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from lentic.color import as_rgb_array, choose_palette, floyd_steinberg, nearest_indices
-from lentic.mesh import extrude_xz, facet_profiles
+from lentic.mesh import box_mesh, cylinder_cavity, extrude_ring, extrude_trapezoids, extrude_xz, facet_profiles
+
+# A 0.4 mm nozzle lays a line about this wide. The crest is cut off where a
+# slope would be thinner than that, so the slicer does not print the other
+# picture on the tip.
+_LINE_MM = 0.5
 
 ANGLE_NAMES = {
     2: ("left", "right"),
@@ -52,6 +58,38 @@ class MeshPart:
     triangles: np.ndarray
 
 
+@dataclass(frozen=True)
+class MagnetSpec:
+    """Pockets in the base, open during the print so a magnet can be dropped in."""
+
+    count: int
+    shape: str
+    thickness_mm: float
+    below_mm: float
+    above_mm: float
+    diameter_mm: float = 0.0
+    width_mm: float = 0.0
+    length_mm: float = 0.0
+    clearance_mm: float = 0.4
+    arrangement: str = "grid"
+    turned: bool = False
+    edge_mm: float = 2.5
+
+    def required_base(self) -> float:
+        return self.below_mm + self.thickness_mm + self.above_mm
+
+    def hole_span(self) -> tuple[float, float]:
+        extra = self.clearance_mm
+        if self.shape == "round":
+            size = self.diameter_mm + extra
+            return size, size
+        wide = self.width_mm + extra
+        tall = self.length_mm + extra
+        if self.turned:
+            return tall, wide
+        return wide, tall
+
+
 @dataclass
 class LenticModel:
     grid: Grid
@@ -65,6 +103,8 @@ class LenticModel:
     previews: list[np.ndarray] = field(default_factory=list)
     fitted: list[np.ndarray] = field(default_factory=list)
     top_preview: np.ndarray | None = None
+    magnets: MagnetSpec | None = None
+    magnet_places: list[tuple[float, float]] = field(default_factory=list)
 
 
 def resolve_grid(
@@ -119,13 +159,20 @@ def build_from_indices(
     base_rgb: tuple[int, int, int] = (244, 241, 234),
     embed_mm: float = 0.05,
     seam_mm: float = 0.02,
+    line_mm: float = _LINE_MM,
     fitted: list[np.ndarray] | None = None,
     orientation: str = "vertical",
+    magnets: MagnetSpec | None = None,
 ) -> LenticModel:
     if len(indices) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
+    if magnets is not None:
+        _check_magnets(spec=magnets)
+        if magnets.above_mm <= embed_mm:
+            raise ValueError("thickness above the magnets has to leave plastic between the pockets and the ridges")
+        base_mm = magnets.required_base()
     if orientation == "horizontal":
-        return _build_horizontal(
+        model = _build_horizontal(
             indices,
             palette,
             width_mm=width_mm,
@@ -135,8 +182,12 @@ def build_from_indices(
             base_rgb=base_rgb,
             embed_mm=embed_mm,
             seam_mm=seam_mm,
+            line_mm=line_mm,
             fitted=fitted,
         )
+        if magnets is not None:
+            _install_magnets(model, magnets)
+        return model
     palette = as_rgb_array(palette)
     shapes = {idx.shape for idx in indices}
     if len(shapes) != 1:
@@ -175,40 +226,45 @@ def build_from_indices(
     peak = base_mm + grid.ridge_height_mm
     span = peak - foot
     seam = min(seam_mm, grid.pitch_mm * 0.2)
-    buckets: dict[int, list[np.ndarray]] = {color: [] for color in range(len(palette))}
+    blunt = len(indices) == 2 and line_mm > 0
+    buckets: dict[int, dict[str, list[np.ndarray]]] = {
+        color: {key: [] for key in ("x0", "z0", "x1", "z1", "y0", "y1", "x0_foot", "x1_foot", "ring_x", "ring_z")}
+        for color in range(len(palette))
+    }
 
     for ridge in range(n_ridges):
         ridge_x0 = ridge * grid.pitch_mm
         ridge_x1 = (ridge + 1) * grid.pitch_mm
         for angle, (fx0, fz0, fx1, fz1) in enumerate(profiles):
-            view = indices[angle]
-            row = 0
-            while row < n_rows:
-                color = int(view[row, ridge])
-                end = row + 1
-                while end < n_rows and int(view[end, ridge]) == color:
-                    end += 1
-                y1 = height_mm - row * grid.row_mm
-                y0 = height_mm - end * grid.row_mm
-                x0 = ridge_x0 + fx0 * grid.pitch_mm
-                x1 = ridge_x0 + fx1 * grid.pitch_mm
-                if fx0 > 0:
-                    x0 = max(ridge_x0, x0 - seam)
-                if fx1 < 1:
-                    x1 = min(ridge_x1, x1 + seam)
-                if x1 - x0 < 1e-6:
-                    row = end
-                    continue
-                z0 = foot + fz0 * span
-                z1 = foot + fz1 * span
-                solid = extrude_xz(
-                    np.array([[x0, z0], [x1, z1], [x1, foot], [x0, foot]], dtype=np.float64),
-                    y0,
-                    y1,
-                )
-                if len(solid):
-                    buckets[color].append(solid)
-                row = end
+            starts, ends, colors = _color_runs(indices[angle][:, ridge])
+            x0 = ridge_x0 + fx0 * grid.pitch_mm
+            x1 = ridge_x0 + fx1 * grid.pitch_mm
+            # Tuck only the buried foot past a shared edge. Moving the slope
+            # itself puts both pictures on the peak, and the tip looks mixed.
+            x0_foot = max(ridge_x0, x0 - seam) if fx0 > 0 else x0
+            x1_foot = min(ridge_x1, x1 + seam) if fx1 < 1 else x1
+            if x1 - x0 < 1e-6:
+                continue
+            z0 = foot + fz0 * span
+            z1 = foot + fz1 * span
+            ring = _blunt_crest(x0, z0, x1, z1, x0_foot, x1_foot, foot, line_mm) if blunt else None
+            y1 = height_mm - starts * grid.row_mm
+            y0 = height_mm - ends * grid.row_mm
+            for color in np.unique(colors):
+                mask = colors == color
+                taken = int(mask.sum())
+                slot = buckets[int(color)]
+                slot["x0"].append(np.full(taken, x0))
+                slot["z0"].append(np.full(taken, z0))
+                slot["x1"].append(np.full(taken, x1))
+                slot["z1"].append(np.full(taken, z1))
+                slot["x0_foot"].append(np.full(taken, x0_foot))
+                slot["x1_foot"].append(np.full(taken, x1_foot))
+                slot["y0"].append(y0[mask])
+                slot["y1"].append(y1[mask])
+                if ring is not None:
+                    slot["ring_x"].append(np.repeat(ring[0][:, None], taken, axis=1))
+                    slot["ring_z"].append(np.repeat(ring[1][:, None], taken, axis=1))
 
     base_poly = np.array(
         [[0.0, 0.0], [width_mm, 0.0], [width_mm, base_mm], [0.0, base_mm]],
@@ -217,17 +273,36 @@ def build_from_indices(
     parts = [
         MeshPart("base", tuple(int(channel) for channel in base_rgb), extrude_xz(base_poly, 0.0, height_mm))
     ]
-    for color, solids in buckets.items():
-        if not solids:
+    for color, slot in buckets.items():
+        if not slot["x0"]:
             continue
         rgb = tuple(int(channel) for channel in palette[color])
-        parts.append(MeshPart("filament", rgb, np.concatenate(solids, axis=0)))
+        if slot["ring_x"]:
+            solid = extrude_ring(
+                np.concatenate(slot["ring_x"], axis=1),
+                np.concatenate(slot["ring_z"], axis=1),
+                np.concatenate(slot["y0"]),
+                np.concatenate(slot["y1"]),
+            )
+        else:
+            solid = extrude_trapezoids(
+                np.concatenate(slot["x0"]),
+                np.concatenate(slot["z0"]),
+                np.concatenate(slot["x1"]),
+                np.concatenate(slot["z1"]),
+                np.concatenate(slot["y0"]),
+                np.concatenate(slot["y1"]),
+                foot,
+                np.concatenate(slot["x0_foot"]),
+                np.concatenate(slot["x1_foot"]),
+            )
+        parts.append(MeshPart("filament", rgb, solid))
 
     previews = [palette[view] for view in indices]
     top = np.zeros((n_rows, n_ridges * len(indices), 3), dtype=np.uint8)
     for angle, preview in enumerate(previews):
         top[:, angle :: len(indices), :] = preview
-    return LenticModel(
+    model = LenticModel(
         grid=grid,
         base_mm=base_mm,
         embed_mm=embed_mm,
@@ -240,6 +315,9 @@ def build_from_indices(
         fitted=list(fitted) if fitted is not None else previews,
         top_preview=top,
     )
+    if magnets is not None:
+        _install_magnets(model, magnets)
+    return model
 
 
 def build_from_images(
@@ -262,6 +340,7 @@ def build_from_images(
     orientation: str = "vertical",
     crops: list[tuple[float, float, float, float] | None] | None = None,
     flips: list[tuple[bool, bool]] | None = None,
+    magnets: MagnetSpec | None = None,
 ) -> LenticModel:
     if len(paths) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
@@ -317,8 +396,10 @@ def build_from_images(
         base_rgb=base_rgb,
         embed_mm=embed_mm,
         seam_mm=seam_mm,
+        line_mm=max(nozzle_mm, _LINE_MM),
         fitted=fitted,
         orientation=orientation,
+        magnets=magnets,
     )
 
 
@@ -333,6 +414,7 @@ def _build_horizontal(
     base_rgb: tuple[int, int, int],
     embed_mm: float,
     seam_mm: float,
+    line_mm: float,
     fitted: list[np.ndarray] | None,
 ) -> LenticModel:
     """Ridges run across the width. The first picture faces down, the last faces up.
@@ -351,6 +433,7 @@ def _build_horizontal(
         base_rgb=base_rgb,
         embed_mm=embed_mm,
         seam_mm=seam_mm,
+        line_mm=line_mm,
         orientation="vertical",
     )
     for part in model.parts:
@@ -375,6 +458,201 @@ def _build_horizontal(
         top[angle :: len(indices), :, :] = preview
     model.top_preview = top
     return model
+
+
+def _blunt_crest(
+    x0: float,
+    z0: float,
+    x1: float,
+    z1: float,
+    x0_foot: float,
+    x1_foot: float,
+    foot: float,
+    line: float,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Flatten the crest so each slope stops while it is still one line wide.
+
+    The old crest x stays in the profile, at the lower height, so the two
+    pictures meet on a short flat instead of a knife edge.
+    """
+    dx = x1 - x0
+    dz = z1 - z0
+    if abs(dz) < 1e-9 or abs(dx) <= line + 1e-6:
+        return None
+    if z1 >= z0:
+        xs = x1 - math.copysign(line, dx)
+        zs = z0 + (xs - x0) / dx * dz
+        ring_x = np.array([x0, xs, x1, x1_foot, x0_foot], dtype=np.float64)
+        ring_z = np.array([z0, zs, zs, foot, foot], dtype=np.float64)
+    else:
+        xs = x0 + math.copysign(line, dx)
+        zs = z0 + (xs - x0) / dx * dz
+        ring_x = np.array([x0, xs, x1, x1_foot, x0_foot], dtype=np.float64)
+        ring_z = np.array([zs, zs, z1, foot, foot], dtype=np.float64)
+    return ring_x, ring_z
+
+
+def _check_magnets(spec: MagnetSpec) -> None:
+    if spec.shape not in {"round", "rect"}:
+        raise ValueError("magnet shape must be round or rectangular")
+    if spec.arrangement not in {"across", "down", "grid", "center"}:
+        raise ValueError("magnet arrangement must be along the width, along the height, a grid, or centered")
+    if spec.edge_mm < 0:
+        raise ValueError("distance from the edge must be zero or more")
+    if spec.count < 1 or spec.count > 24:
+        raise ValueError("magnet count must be from 1 to 24")
+    if spec.thickness_mm <= 0 or spec.below_mm <= 0 or spec.above_mm <= 0:
+        raise ValueError("magnet thickness, and the plastic above and below, must be greater than 0")
+    if spec.shape == "round" and spec.diameter_mm <= 0:
+        raise ValueError("magnet diameter must be greater than 0")
+    if spec.shape == "rect" and (spec.width_mm <= 0 or spec.length_mm <= 0):
+        raise ValueError("magnet width and length must be greater than 0")
+
+
+def _install_magnets(model: LenticModel, spec: MagnetSpec) -> None:
+    """Replace the solid base with one that has pockets for pause-and-insert magnets."""
+    width = model.grid.width_mm
+    height = model.grid.height_mm
+    hole_w, hole_h = spec.hole_span()
+    centers = _magnet_centers(
+        spec.count,
+        width,
+        height,
+        hole_w,
+        hole_h,
+        spec.arrangement,
+        spec.edge_mm,
+    )
+    z0 = spec.below_mm
+    z1 = spec.below_mm + spec.thickness_mm
+    if spec.shape == "round":
+        radius = hole_w / 2.0
+        holes = [cylinder_cavity(cx, cy, radius, z0, z1) for cx, cy in centers]
+    else:
+        holes = [
+            np.ascontiguousarray(
+                box_mesh(
+                    cx - hole_w / 2.0,
+                    cy - hole_h / 2.0,
+                    z0,
+                    cx + hole_w / 2.0,
+                    cy + hole_h / 2.0,
+                    z1,
+                )[:, ::-1, :]
+            )
+            for cx, cy in centers
+        ]
+    outer = box_mesh(0.0, 0.0, 0.0, width, height, model.base_mm)
+    base = next(part for part in model.parts if part.role == "base")
+    base.triangles = np.ascontiguousarray(np.concatenate([outer, *holes]))
+    model.magnets = spec
+    model.magnet_places = centers
+
+
+def _magnet_centers(
+    count: int,
+    width: float,
+    height: float,
+    hole_w: float,
+    hole_h: float,
+    arrangement: str = "grid",
+    edge: float = 2.5,
+) -> list[tuple[float, float]]:
+    """Even centers, with plastic around each hole and at the edge of the plate."""
+    if count < 1:
+        raise ValueError("magnet count must be at least 1")
+    if edge < 0:
+        raise ValueError("distance from the edge must be zero or more")
+    gap = 2.0
+    if arrangement == "across":
+        layouts = [(count, 1)]
+    elif arrangement == "down":
+        layouts = [(1, count)]
+    else:
+        layouts = [(cols, math.ceil(count / cols)) for cols in range(1, count + 1)]
+    best: tuple[tuple[float, float, int], int, int] | None = None
+    for cols, rows in layouts:
+        need_w = cols * hole_w + (cols - 1) * gap + 2 * edge
+        need_h = rows * hole_h + (rows - 1) * gap + 2 * edge
+        if need_w > width + 1e-6 or need_h > height + 1e-6:
+            continue
+        empty = cols * rows - count
+        aspect = abs(math.log((cols / rows) / max(width / height, 1e-6)))
+        score = (float(empty), aspect, rows)
+        if best is None or score < best[0]:
+            best = (score, cols, rows)
+    if best is None:
+        if arrangement == "across":
+            raise ValueError("those magnets do not fit in one row across the plate. Use fewer, or a smaller magnet.")
+        if arrangement == "down":
+            raise ValueError("those magnets do not fit in one column down the plate. Use fewer, or a smaller magnet.")
+        if arrangement == "center":
+            raise ValueError("those magnets do not fit in the center with that distance from the edge. Use fewer, or a smaller magnet.")
+        raise ValueError("those magnets do not fit on this plate. Use fewer, or a smaller magnet.")
+    cols, rows = best[1], best[2]
+    if arrangement == "center":
+        xs = _packed(cols, width, hole_w, gap)
+        ys = _packed(rows, height, hole_h, gap)
+    else:
+        xs = _spread(cols, width, hole_w, edge, gap)
+        ys = _spread(rows, height, hole_h, edge, gap)
+    if xs is None or ys is None:
+        raise ValueError("those magnets do not fit on this plate. Use fewer, or a smaller magnet.")
+    pitch = xs[1] - xs[0] if len(xs) > 1 else 0.0
+    points: list[tuple[float, float]] = []
+    placed = 0
+    for row in range(rows):
+        across = min(cols, count - placed)
+        if across == len(xs):
+            row_xs = xs
+        else:
+            row_span = (across - 1) * pitch
+            start = (width - row_span) / 2.0
+            row_xs = [start + col * pitch for col in range(across)]
+        for x in row_xs:
+            points.append((x, ys[row]))
+        placed += across
+    return points
+
+
+def _packed(count: int, span: float, hole: float, gap: float) -> list[float]:
+    """Centers packed together in the middle of the plate."""
+    if count == 1:
+        return [span / 2.0]
+    pitch = hole + gap
+    used = count * hole + (count - 1) * gap
+    start = (span - used) / 2.0 + hole / 2.0
+    return [start + index * pitch for index in range(count)]
+
+
+def _spread(count: int, span: float, hole: float, edge: float, gap: float) -> list[float] | None:
+    """Centers spread across the plate, never closer than the hole plus a gap."""
+    inset = edge + hole / 2.0
+    if count == 1:
+        if span < hole + 2 * edge:
+            return None
+        return [span / 2.0]
+    room = span - 2 * inset
+    if room < (count - 1) * (hole + gap) - 1e-6:
+        return None
+    step = room / (count - 1)
+    return [inset + index * step for index in range(count)]
+
+
+def _color_runs(column: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Start row, end row, and color for each solid run down one ridge."""
+    column = np.asarray(column)
+    if len(column) == 0:
+        empty = np.zeros(0, dtype=np.int32)
+        return empty, empty, empty
+    change = np.flatnonzero(column[1:] != column[:-1]) + 1
+    starts = np.empty(len(change) + 1, dtype=np.int32)
+    ends = np.empty_like(starts)
+    starts[0] = 0
+    starts[1:] = change
+    ends[:-1] = change
+    ends[-1] = len(column)
+    return starts, ends, column[starts]
 
 
 def _swap_xy(triangles: np.ndarray) -> np.ndarray:

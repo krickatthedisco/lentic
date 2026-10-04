@@ -28,6 +28,13 @@
     <div class="upload" id="slot-left">
       <button type="button" id="pick-left">Upload left picture</button>
       <input id="file-left" type="file" accept="image/*" hidden>
+      <div class="text-maker" data-text-slot="left">
+        <label>Text <input type="text" data-text="left" placeholder="Clean" maxlength="40"></label>
+        <label>Font <select data-font="left"></select></label>
+        <label>Letters <input type="color" data-ink="left" value="#111111"></label>
+        <label>Background <input type="color" data-paper="left" value="#f7f4ee"></label>
+        <button type="button" class="secondary" data-make-text="left">Use this text</button>
+      </div>
       <div class="chosen" hidden>
         <div class="crop-stage" id="crop-left">
           <img id="thumb-left" alt="">
@@ -49,6 +56,13 @@
     <div class="upload" id="slot-right">
       <button type="button" id="pick-right">Upload right picture</button>
       <input id="file-right" type="file" accept="image/*" hidden>
+      <div class="text-maker" data-text-slot="right">
+        <label>Text <input type="text" data-text="right" placeholder="Dirty" maxlength="40"></label>
+        <label>Font <select data-font="right"></select></label>
+        <label>Letters <input type="color" data-ink="right" value="#f7f4ee"></label>
+        <label>Background <input type="color" data-paper="right" value="#111111"></label>
+        <button type="button" class="secondary" data-make-text="right">Use this text</button>
+      </div>
       <div class="chosen" hidden>
         <div class="crop-stage" id="crop-right">
           <img id="thumb-right" alt="">
@@ -70,6 +84,13 @@
     <div class="upload" id="slot-front">
       <button type="button" id="pick-front">Upload front picture (Optional)</button>
       <input id="file-front" type="file" accept="image/*" hidden>
+      <div class="text-maker" data-text-slot="front">
+        <label>Text <input type="text" data-text="front" placeholder="Hello" maxlength="40"></label>
+        <label>Font <select data-font="front"></select></label>
+        <label>Letters <input type="color" data-ink="front" value="#9a3412"></label>
+        <label>Background <input type="color" data-paper="front" value="#f7f4ee"></label>
+        <button type="button" class="secondary" data-make-text="front">Use this text</button>
+      </div>
       <div class="chosen" hidden>
         <div class="crop-stage" id="crop-front">
           <img id="thumb-front" alt="">
@@ -94,25 +115,64 @@
 
   <section>
     <h2>Part size</h2>
-    <label>Width <span class="unit"><input id="width" type="number" min="5" step="0.1" value="80"> mm</span></label>
-    <label>Height <span class="unit"><input id="height" type="number" min="5" step="0.1" value="45"> mm</span></label>
+    <label>Width <span class="unit"><input id="width" type="number" min="5" step="0.1" value="200"> mm</span></label>
+    <label>Height <span class="unit"><input id="height" type="number" min="5" step="0.1" value="112.5"> mm</span></label>
     <label class="check"><input id="lock-aspect" type="checkbox" checked> Maintain aspect ratio</label>
     <p class="hint" id="aspect-hint">Editing width or height updates the other. A picture sets the proportion.</p>
     <label>Base thickness <span class="unit"><input id="base" type="number" min="0.2" step="0.1" value="0.8"> mm</span></label>
-    <label>Ridge height <span class="unit"><input id="ridge" type="number" min="0.2" step="0.1" value="0.6"> mm</span></label>
+    <label class="check"><input id="magnets" type="checkbox"> Add magnet pockets</label>
+    <div id="magnet-fields" hidden>
+      <label>Magnets <span class="unit"><input id="magnet-count" type="number" min="1" max="24" step="1" value="2"></span></label>
+      <label>Shape <span class="unit">
+        <select id="magnet-shape">
+          <option value="round">Round</option>
+          <option value="rect">Rectangular</option>
+        </select>
+      </span></label>
+      <div id="magnet-round">
+        <label>Diameter <span class="unit"><input id="magnet-diameter" type="number" min="1" step="0.1" value="6"> mm</span></label>
+        <label>Thickness <span class="unit"><input id="magnet-thickness" type="number" min="0.4" step="0.1" value="2"> mm</span></label>
+      </div>
+      <div id="magnet-rect" hidden>
+        <label>Width <span class="unit"><input id="magnet-width" type="number" min="1" step="0.1" value="10"> mm</span></label>
+        <label>Length <span class="unit"><input id="magnet-length" type="number" min="1" step="0.1" value="5"> mm</span></label>
+        <label>Thickness <span class="unit"><input id="magnet-rect-thickness" type="number" min="0.4" step="0.1" value="2"> mm</span></label>
+      </div>
+      <label>Thickness below magnets <span class="unit"><input id="magnet-below" type="number" min="0.2" step="0.1" value="0.4"> mm</span></label>
+      <label>Thickness above magnets <span class="unit"><input id="magnet-above" type="number" min="0.2" step="0.1" value="0.4"> mm</span></label>
+      <label>Arrangement <span class="unit">
+        <select id="magnet-arrange">
+          <option value="across">Along the width</option>
+          <option value="down">Along the height</option>
+          <option value="grid" selected>Grid</option>
+          <option value="center">Centered</option>
+        </select>
+      </span></label>
+      <label>Distance from edge <span class="unit"><input id="magnet-edge" type="number" min="0" step="0.1" value="2.5"> mm</span></label>
+      <label class="check" id="magnet-turn-label"><input id="magnet-turn" type="checkbox"> Rotate rectangular magnets</label>
+      <label class="check"><input id="show-magnets" type="checkbox" checked> Show magnet locations</label>
+      <p class="hint" id="magnet-hint">The base is the plastic below the magnets, plus the magnet, plus the plastic above them. Pause when the pocket is full, drop the magnets in, then let the print cover them. Each hole is 0.4 mm larger so the magnet drops in. Show magnet locations draws those pockets through the plate.</p>
+    </div>
+    <label>Ridge height <span class="unit"><input id="ridge" type="number" min="0.2" step="0.1" value="3.2"> mm</span></label>
   </section>
 
   <section>
     <h2>Resolution</h2>
-    <label>Ridge pitch <span class="unit"><input id="pitch" type="number" min="0.4" step="0.1" value="0.8"> mm</span></label>
+    <label>Ridge pitch <span class="unit"><input id="pitch" type="number" min="0.4" step="0.1" value="4"> mm</span></label>
     <label>Row size <span class="unit"><input id="row" type="number" min="0.2" step="0.1" value="0.4"> mm</span></label>
-    <p class="hint" id="resolution-hint">Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so 300 mm across holds far more of the picture than 80 mm. A 0.4 mm nozzle starts at 0.8 mm pitch and 0.4 mm rows. Raise the pitch toward 1.6 mm if a slope comes out too thin.</p>
+    <p class="hint" id="resolution-hint">Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. The crest is cut flat one line in from each side, so the other picture is not printed on the tip. Rows stay 0.4 mm.</p>
   </section>
 
   <section>
     <h2>Color</h2>
     <label>Base color <span class="unit"><input id="base-color" type="color" value="#f4f1ea"></span></label>
     <label>Filament colors <span class="unit"><input id="max-colors" type="number" min="1" max="8" step="1" value="4"></span></label>
+    <label class="check"><input id="use-spools" type="checkbox"> Use my filament colors</label>
+    <div id="spools" hidden>
+      <div id="spool-list"></div>
+      <button type="button" id="add-spool" class="secondary">Add a color</button>
+    </div>
+    <p class="hint" id="spool-hint">Leave this off and Lentic chooses the colors. Turn it on to print with the filaments you actually have.</p>
     <label class="check"><input id="dither" type="checkbox" checked> Dither photos onto the filaments</label>
   </section>
 
@@ -123,6 +183,10 @@
 <main>
   <div id="viewport">
     <canvas id="view" tabindex="0" role="application" aria-label="Color 3D preview. Drag to rotate."></canvas>
+    <div id="busy" hidden>
+      <div class="spinner"></div>
+      <p>Building the plate</p>
+    </div>
     <div id="hud">
       <button type="button" id="reset-view" class="secondary">Reset view</button>
       <p>Drag to rotate. Scroll to zoom.</p>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 import tempfile
 import unittest
@@ -12,11 +13,11 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from lentic.build import _open_rgb, build_from_images, build_from_indices
+from lentic.build import MagnetSpec, _open_rgb, build_from_images, build_from_indices
 from lentic.cli import main
 from lentic.color import choose_palette, floyd_steinberg, median_cut, nearest_indices, parse_hex
 from lentic.export import export_model
-from lentic.mesh import mesh_volume, triangle_normals
+from lentic.mesh import box_mesh, cylinder_cavity, extrude_trapezoids, extrude_xz, mesh_volume, triangle_normals
 
 
 RED = np.array([255, 0, 0], dtype=np.uint8)
@@ -97,6 +98,38 @@ class TestColor(unittest.TestCase):
 
 
 class TestBuild(unittest.TestCase):
+    def test_batched_slopes_match_a_single_extrusion(self):
+        for poly, y0, y1, foot in (
+            (np.array([[0.0, 0.0], [0.8, 1.4], [0.8, -0.05], [0.0, -0.05]]), 0.0, 1.6, -0.05),
+            (np.array([[0.8, 1.4], [1.6, 0.0], [1.6, -0.05], [0.8, -0.05]]), 1.6, 0.2, -0.05),
+        ):
+            single = extrude_xz(poly, y0, y1)
+            batch = extrude_trapezoids(
+                [poly[0, 0]],
+                [poly[0, 1]],
+                [poly[1, 0]],
+                [poly[1, 1]],
+                [y0],
+                [y1],
+                foot,
+            )
+            self.assertEqual(len(single), len(batch))
+            self.assertAlmostEqual(mesh_volume(single), mesh_volume(batch), places=5)
+        tucked = np.array([[0.0, 0.0], [0.8, 1.4], [0.9, -0.05], [-0.02, -0.05]], dtype=np.float64)
+        single = extrude_xz(tucked, 0.0, 1.6)
+        batch = extrude_trapezoids(
+            [tucked[0, 0]],
+            [tucked[0, 1]],
+            [tucked[1, 0]],
+            [tucked[1, 1]],
+            [0.0],
+            [1.6],
+            -0.05,
+            [tucked[3, 0]],
+            [tucked[2, 0]],
+        )
+        self.assertAlmostEqual(mesh_volume(single), mesh_volume(batch), places=5)
+
     def test_left_and_right_slopes_face_opposite_ways(self):
         left = np.zeros((1, 2), dtype=np.int32)
         right = np.ones((1, 2), dtype=np.int32)
@@ -109,6 +142,7 @@ class TestBuild(unittest.TestCase):
             ridge_height_mm=1.6,
             embed_mm=0,
             seam_mm=0,
+            line_mm=0,
         )
         red = next(part for part in model.parts if part.rgb == (255, 0, 0))
         blue = next(part for part in model.parts if part.rgb == (0, 0, 255))
@@ -120,6 +154,68 @@ class TestBuild(unittest.TestCase):
         self.assertAlmostEqual(mesh_volume(base.triangles), 4 * 2 * 0.8, places=5)
         for part in model.parts:
             self.assertGreater(mesh_volume(part.triangles), 0)
+
+    def test_the_seam_does_not_cross_at_the_peak(self):
+        left = np.zeros((1, 2), dtype=np.int32)
+        right = np.ones((1, 2), dtype=np.int32)
+        model = build_from_indices(
+            [left, right],
+            PALETTE[:2],
+            width_mm=3.2,
+            height_mm=2,
+            base_mm=0.8,
+            ridge_height_mm=1.6,
+            embed_mm=0.05,
+            seam_mm=0.08,
+            line_mm=0,
+        )
+        peak = model.base_mm + model.grid.ridge_height_mm
+        foot = model.base_mm - model.embed_mm
+        red = next(part for part in model.parts if part.rgb == (255, 0, 0))
+        blue = next(part for part in model.parts if part.rgb == (0, 0, 255))
+        for ridge in range(2):
+            center = (ridge + 0.5) * model.grid.pitch_mm
+            red_points = red.triangles.reshape(-1, 3)
+            blue_points = blue.triangles.reshape(-1, 3)
+            red_tip = red_points[np.isclose(red_points[:, 2], peak)]
+            blue_tip = blue_points[np.isclose(blue_points[:, 2], peak)]
+            red_tip = red_tip[np.abs(red_tip[:, 0] - center) < 0.5]
+            blue_tip = blue_tip[np.abs(blue_tip[:, 0] - center) < 0.5]
+            self.assertGreater(len(red_tip), 0)
+            self.assertGreater(len(blue_tip), 0)
+            self.assertAlmostEqual(red_tip[:, 0].max(), center, places=5)
+            self.assertAlmostEqual(blue_tip[:, 0].min(), center, places=5)
+            red_foot = red_points[np.isclose(red_points[:, 2], foot)]
+            red_foot = red_foot[(red_foot[:, 0] > center - 0.2) & (red_foot[:, 0] < center + 0.5)]
+            self.assertGreater(red_foot[:, 0].max(), center + 0.05)
+
+    def test_the_crest_stops_one_line_in_from_the_slope(self):
+        left = np.zeros((1, 1), dtype=np.int32)
+        right = np.ones((1, 1), dtype=np.int32)
+        model = build_from_indices(
+            [left, right],
+            PALETTE[:2],
+            width_mm=4,
+            height_mm=2,
+            base_mm=0.8,
+            ridge_height_mm=3.2,
+            embed_mm=0.05,
+            seam_mm=0,
+            line_mm=0.5,
+        )
+        center = 2.0
+        nominal = model.base_mm + 3.2
+        red = next(part for part in model.parts if part.rgb == (255, 0, 0)).triangles.reshape(-1, 3)
+        blue = next(part for part in model.parts if part.rgb == (0, 0, 255)).triangles.reshape(-1, 3)
+        self.assertLess(red[:, 2].max(), nominal - 0.4)
+        self.assertLess(blue[:, 2].max(), nominal - 0.4)
+        shelf = red[:, 2].max()
+        red_top = red[np.isclose(red[:, 2], shelf)]
+        blue_top = blue[np.isclose(blue[:, 2], shelf)]
+        self.assertAlmostEqual(red_top[:, 0].max(), center, places=4)
+        self.assertAlmostEqual(red_top[:, 0].min(), center - 0.5, places=4)
+        self.assertAlmostEqual(blue_top[:, 0].min(), center, places=4)
+        self.assertAlmostEqual(blue_top[:, 0].max(), center + 0.5, places=4)
 
     def test_image_top_is_the_high_y_side(self):
         left = np.array([[0, 0], [1, 1]], dtype=np.int32)
@@ -288,7 +384,7 @@ class TestExport(unittest.TestCase):
             )
             self.assertEqual(code, 0)
             red = read_stl_vertices(out / "filament_ff0000.stl")
-            self.assertEqual(len(red), 16)
+            self.assertEqual(len(red), 24)
             self.assertGreater(mesh_volume(red.astype(np.float64)), 0)
             with zipfile.ZipFile(out / "model.3mf") as package:
                 xml = package.read("3D/3dmodel.model").decode("utf-8")
@@ -306,6 +402,159 @@ class TestExport(unittest.TestCase):
             self.assertIn("view_right.png", html)
             self.assertEqual(main(["--demo", "--width", "16", "--out", str(root / "demo")]), 0)
             self.assertTrue((root / "demo" / "preview.html").is_file())
+
+
+class TestMagnets(unittest.TestCase):
+    def _plate(self, **kwargs):
+        left = np.zeros((2, 2), dtype=np.int32)
+        right = np.ones((2, 2), dtype=np.int32)
+        settings = {
+            "width_mm": 40,
+            "height_mm": 20,
+            "base_mm": 0.8,
+            "ridge_height_mm": 1.0,
+            "embed_mm": 0.05,
+            "seam_mm": 0,
+        }
+        settings.update(kwargs)
+        return build_from_indices([left, right], PALETTE[:2], **settings)
+
+    def test_box_and_round_hole_have_the_right_volume(self):
+        self.assertAlmostEqual(mesh_volume(box_mesh(0, 0, 0, 10, 4, 2)), 80, places=5)
+        hole = cylinder_cavity(0, 0, 3, 0.4, 2.4)
+        self.assertLess(mesh_volume(hole), 0)
+        self.assertAlmostEqual(mesh_volume(hole), -math.pi * 9 * 2, delta=0.8)
+
+    def test_above_and_below_set_the_base_and_the_pause(self):
+        spec = MagnetSpec(
+            count=2,
+            shape="round",
+            thickness_mm=2,
+            below_mm=1.2,
+            above_mm=0.8,
+            diameter_mm=6,
+        )
+        model = self._plate(magnets=spec)
+        self.assertAlmostEqual(model.base_mm, 4.0)
+        base = next(part for part in model.parts if part.role == "base")
+        radius = (6 + spec.clearance_mm) / 2
+        expected = 40 * 20 * 4.0 - 2 * math.pi * radius * radius * 2
+        self.assertAlmostEqual(mesh_volume(base.triangles), expected, delta=abs(expected) * 0.03)
+        heights = base.triangles.reshape(-1, 3)[:, 2]
+        self.assertTrue(np.any(np.isclose(heights, 1.2)))
+        self.assertTrue(np.any(np.isclose(heights, 3.2)))
+        filament = next(part for part in model.parts if part.role == "filament")
+        self.assertGreater(filament.triangles[:, :, 2].min(), 3.2)
+
+    def test_rectangular_pockets_remove_their_exact_volume(self):
+        spec = MagnetSpec(
+            count=1,
+            shape="rect",
+            thickness_mm=2,
+            below_mm=0.4,
+            above_mm=0.5,
+            width_mm=10,
+            length_mm=5,
+        )
+        model = self._plate(magnets=spec)
+        self.assertAlmostEqual(model.base_mm, 2.9)
+        base = next(part for part in model.parts if part.role == "base")
+        hole_w = 10 + spec.clearance_mm
+        hole_h = 5 + spec.clearance_mm
+        expected = 40 * 20 * 2.9 - hole_w * hole_h * 2
+        self.assertAlmostEqual(mesh_volume(base.triangles), expected, places=4)
+
+    def test_magnets_that_do_not_fit_are_rejected(self):
+        spec = MagnetSpec(count=8, shape="round", thickness_mm=2, below_mm=0.4, above_mm=0.4, diameter_mm=6)
+        with self.assertRaises(ValueError):
+            self._plate(width_mm=20, height_mm=10, magnets=spec)
+
+    def test_arrangement_and_rotation_move_the_pockets(self):
+        across = MagnetSpec(
+            count=3,
+            shape="round",
+            thickness_mm=2,
+            below_mm=0.4,
+            above_mm=0.4,
+            diameter_mm=6,
+            arrangement="across",
+        )
+        model = self._plate(width_mm=80, height_mm=30, magnets=across)
+        self.assertEqual(len(model.magnet_places), 3)
+        ys = [place[1] for place in model.magnet_places]
+        xs = [place[0] for place in model.magnet_places]
+        self.assertAlmostEqual(max(ys) - min(ys), 0, places=5)
+        self.assertGreater(max(xs) - min(xs), 12)
+
+        down = MagnetSpec(
+            count=3,
+            shape="round",
+            thickness_mm=2,
+            below_mm=0.4,
+            above_mm=0.4,
+            diameter_mm=6,
+            arrangement="down",
+        )
+        model = self._plate(width_mm=30, height_mm=80, magnets=down)
+        xs = [place[0] for place in model.magnet_places]
+        ys = [place[1] for place in model.magnet_places]
+        self.assertAlmostEqual(max(xs) - min(xs), 0, places=5)
+        self.assertGreater(max(ys) - min(ys), 12)
+
+        centered = MagnetSpec(
+            count=3,
+            shape="round",
+            thickness_mm=2,
+            below_mm=0.4,
+            above_mm=0.4,
+            diameter_mm=6,
+            arrangement="center",
+        )
+        model = self._plate(width_mm=80, height_mm=30, magnets=centered)
+        xs = sorted(place[0] for place in model.magnet_places)
+        self.assertLess(xs[-1] - xs[0], 20)
+        self.assertGreater(xs[0], 25)
+
+        inset = MagnetSpec(
+            count=3,
+            shape="round",
+            thickness_mm=2,
+            below_mm=0.4,
+            above_mm=0.4,
+            diameter_mm=6,
+            arrangement="across",
+            edge_mm=8,
+        )
+        model = self._plate(width_mm=80, height_mm=30, magnets=inset)
+        xs = sorted(place[0] for place in model.magnet_places)
+        self.assertAlmostEqual(xs[0], 8 + (6 + inset.clearance_mm) / 2, places=3)
+        self.assertAlmostEqual(xs[-1], 80 - xs[0], places=3)
+
+        turned = MagnetSpec(
+            count=1,
+            shape="rect",
+            thickness_mm=2,
+            below_mm=0.4,
+            above_mm=0.4,
+            width_mm=12,
+            length_mm=4,
+            turned=True,
+        )
+        model = self._plate(width_mm=40, height_mm=40, magnets=turned)
+        base = next(part for part in model.parts if part.role == "base")
+        floor = base.triangles.reshape(-1, 3)
+        floor = floor[np.isclose(floor[:, 2], 0.4)]
+        self.assertAlmostEqual(floor[:, 0].max() - floor[:, 0].min(), 4.4, places=3)
+        self.assertAlmostEqual(floor[:, 1].max() - floor[:, 1].min(), 12.4, places=3)
+
+    def test_horizontal_plate_keeps_the_pockets(self):
+        spec = MagnetSpec(count=2, shape="rect", thickness_mm=1, below_mm=0.6, above_mm=0.7, width_mm=8, length_mm=4)
+        model = self._plate(orientation="horizontal", magnets=spec)
+        self.assertEqual(model.orientation, "horizontal")
+        self.assertAlmostEqual(model.base_mm, 2.3)
+        base = next(part for part in model.parts if part.role == "base")
+        hole = (8 + spec.clearance_mm) * (4 + spec.clearance_mm) * 1
+        self.assertAlmostEqual(mesh_volume(base.triangles), 40 * 20 * 2.3 - 2 * hole, places=3)
 
 
 if __name__ == "__main__":

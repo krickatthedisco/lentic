@@ -1,3 +1,27 @@
+@font-face {
+  font-family: "Oswald";
+  src: url("/fonts/Oswald.ttf") format("truetype");
+  font-weight: 200 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Nunito";
+  src: url("/fonts/Nunito.ttf") format("truetype");
+  font-weight: 200 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Libre Baskerville";
+  src: url("/fonts/LibreBaskerville.ttf") format("truetype");
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inconsolata";
+  src: url("/fonts/Inconsolata-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
 :root { color-scheme: light; }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -93,8 +117,44 @@ label { display: flex; justify-content: space-between; align-items: center; gap:
 label.check { justify-content: flex-start; }
 .unit { display: flex; align-items: center; gap: 6px; color: #44403c; }
 input[type="number"] { width: 88px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; }
+#magnet-fields select { width: 140px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; font: inherit; }
+#magnet-fields[hidden], #magnet-round[hidden], #magnet-rect[hidden], #magnet-turn-label[hidden] { display: none; }
 input[type="color"] { width: 42px; height: 28px; padding: 0; border: 1px solid #a8a29e; background: #fff; }
+.text-maker {
+  margin: 8px 0 4px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #d6d3d1;
+  border-radius: 6px;
+}
+.text-maker label { margin: 5px 0; }
+.text-maker input[type="text"], .text-maker select { width: 140px; padding: 4px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; }
+.text-maker button { width: 100%; margin-top: 6px; }
+.spool-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.spool-row button { width: 28px; height: 28px; padding: 0; border-radius: 50%; }
 #status { min-height: 2.8em; margin: 10px 0 0; }
+#busy {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(236, 231, 223, 0.86);
+}
+#busy[hidden] { display: none; }
+#busy p { margin: 0; font-size: 18px; }
+.spinner {
+  width: 46px;
+  height: 46px;
+  border: 4px solid #d6d3d1;
+  border-top-color: #9a3412;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 #viewport { position: relative; height: 100%; min-width: 0; min-height: 0; }
 #view { width: 100%; height: 100%; display: block; touch-action: none; }
 #hud {

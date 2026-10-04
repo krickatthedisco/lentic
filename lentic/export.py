@@ -299,10 +299,16 @@ def _print_notes(model: LenticModel, parts: list[tuple[MeshPart, str]]) -> str:
     ]
     for part, filename in parts:
         lines.append(f"  {filename}  #{rgb_to_hex(part.rgb)}")
+    lines.extend(["", "Lay the plate flat with the ridges facing up. Do not stand it on its side."])
+    if model.magnets is not None:
+        spec = model.magnets
+        pause = spec.below_mm + spec.thickness_mm
+        lines.append(
+            f"Pause at {pause:.2f} mm, drop the magnets into the pockets, then continue. "
+            f"{spec.below_mm:.2f} mm of plastic is below them and {spec.above_mm:.2f} mm is above them."
+        )
     lines.extend(
         [
-            "",
-            "Lay the plate flat with the ridges facing up. Do not stand it on its side.",
             _viewing_note(model),
             "Tilt the finished print to switch pictures.",
             "",

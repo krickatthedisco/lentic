@@ -12,11 +12,13 @@ const imageAspects = { left: null, right: null, front: null };
 const cropCustom = { left: false, right: false, front: false };
 let orientation = "vertical";
 let pictureAspect = null;
-let lockedAspect = 80 / 45;
+let lockedAspect = 200 / 112.5;
 let framed = false;
 let framedSize = "";
 let ticket = 0;
 let inflight = null;
+let lastMeta = null;
+let magnetOutline = null;
 
 const status = document.getElementById("status");
 const canvas = document.getElementById("view");
@@ -54,6 +56,12 @@ window.__lentic = {
   camera: () => camera.position.toArray(),
   meshes: () => plate.children.length,
   status: () => status.textContent,
+  magnetPlaces: () => (lastMeta && lastMeta.magnets ? lastMeta.magnets.places : null),
+  magnetLines: () => {
+    if (!magnetOutline) return null;
+    const positions = magnetOutline.geometry.getAttribute("position");
+    return { visible: magnetOutline.visible, count: positions ? positions.count : 0 };
+  },
 };
 
 function resize() {
@@ -94,7 +102,34 @@ function formData() {
   data.set("dither", document.getElementById("dither").checked ? "1" : "0");
   data.set("base_color", document.getElementById("base-color").value);
   data.set("orientation", orientation);
-  if (document.body.dataset.palette) data.set("palette", document.body.dataset.palette);
+  data.set("magnets", document.getElementById("magnets").checked ? "1" : "0");
+  if (document.getElementById("magnets").checked) {
+    const shape = document.getElementById("magnet-shape").value;
+    data.set("magnet_count", String(numberValue("magnet-count")));
+    data.set("magnet_shape", shape);
+    data.set("magnet_below", String(numberValue("magnet-below")));
+    data.set("magnet_above", String(numberValue("magnet-above")));
+    data.set("magnet_arrange", document.getElementById("magnet-arrange").value);
+    const edge = Number(document.getElementById("magnet-edge").value);
+    if (!Number.isFinite(edge) || edge < 0) {
+      throw new Error("Distance from the edge needs zero or more millimeters.");
+    }
+    data.set("magnet_edge", String(edge));
+    if (shape === "rect") {
+      data.set("magnet_width", String(numberValue("magnet-width")));
+      data.set("magnet_length", String(numberValue("magnet-length")));
+      data.set("magnet_thickness", String(numberValue("magnet-rect-thickness")));
+      data.set("magnet_turn", document.getElementById("magnet-turn").checked ? "1" : "0");
+    } else {
+      data.set("magnet_diameter", String(numberValue("magnet-diameter")));
+      data.set("magnet_thickness", String(numberValue("magnet-thickness")));
+    }
+  }
+  if (document.getElementById("use-spools").checked && spools.length) {
+    data.set("palette", spools.join(","));
+  } else if (document.body.dataset.palette) {
+    data.set("palette", document.body.dataset.palette);
+  }
   const first = orientation === "horizontal" ? "top" : "left";
   const second = orientation === "horizontal" ? "bottom" : "right";
   data.set(first, pictures.left, pictures.left.name);
@@ -140,9 +175,14 @@ function schedule() {
   schedule.timer = window.setTimeout(preview, 250);
 }
 
+function setBusy(on) {
+  document.getElementById("busy").hidden = !on;
+}
+
 async function preview() {
   exportButton.disabled = true;
   if (!pictures.left || !pictures.right) {
+    setBusy(false);
     status.textContent = idleStatus();
     clearPlate();
     return;
@@ -151,6 +191,7 @@ async function preview() {
   try {
     data = formData();
   } catch (error) {
+    setBusy(false);
     status.textContent = error.message;
     return;
   }
@@ -159,6 +200,7 @@ async function preview() {
   const controller = new AbortController();
   inflight = controller;
   status.textContent = "Building the plate...";
+  setBusy(true);
   try {
     const response = await fetch("/api/preview", { method: "POST", body: data, signal: controller.signal });
     const type = response.headers.get("content-type") || "";
@@ -172,6 +214,8 @@ async function preview() {
   } catch (error) {
     if (error.name === "AbortError" || id !== ticket) return;
     status.textContent = error.message;
+  } finally {
+    if (id === ticket) setBusy(false);
   }
 }
 
@@ -190,10 +234,15 @@ function showPlate(buffer) {
     plate.add(new THREE.Mesh(geometry, material));
   }
   renderSwatches(meta.parts);
+  lastMeta = meta;
+  showMagnetLines(meta);
   exportButton.disabled = plate.children.length === 0;
   status.textContent =
     `${meta.width_mm.toFixed(1)} x ${meta.height_mm.toFixed(1)} x ${meta.depth_mm.toFixed(1)} mm, ` +
     `${meta.ridges} x ${meta.rows} picture at ${meta.pitch_mm.toFixed(2)} mm ridges and ${meta.row_mm.toFixed(2)} mm rows.`;
+  if (meta.magnets) {
+    status.textContent += ` Pause at ${meta.magnets.pause_mm.toFixed(1)} mm to drop in the magnets.`;
+  }
   const sizeKey = `${meta.width_mm.toFixed(2)}x${meta.height_mm.toFixed(2)}`;
   if (!framed || sizeKey !== framedSize) frame(framed);
   framed = true;
@@ -201,12 +250,84 @@ function showPlate(buffer) {
 }
 
 function clearPlate() {
+  magnetOutline = null;
   for (const mesh of [...plate.children]) {
     plate.remove(mesh);
     mesh.geometry.dispose();
     mesh.material.dispose();
   }
   document.getElementById("swatches").replaceChildren();
+}
+
+function showMagnetLines(meta) {
+  if (magnetOutline) {
+    plate.remove(magnetOutline);
+    magnetOutline.geometry.dispose();
+    magnetOutline.material.dispose();
+    magnetOutline = null;
+  }
+  const magnets = meta && meta.magnets;
+  if (!magnets || !magnets.places || !document.getElementById("show-magnets").checked) return;
+  const positions = pocketPositions(meta);
+  if (!positions.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  const material = new THREE.LineBasicMaterial({ color: 0x0f766e, depthTest: false });
+  magnetOutline = new THREE.LineSegments(geometry, material);
+  magnetOutline.userData.magnets = true;
+  magnetOutline.renderOrder = 3;
+  plate.add(magnetOutline);
+}
+
+function pocketPositions(meta) {
+  const magnets = meta.magnets;
+  const width = meta.width_mm;
+  const height = meta.height_mm;
+  const positions = [];
+  for (const place of magnets.places) {
+    const cx = place[0];
+    const cy = place[1];
+    if (magnets.shape === "round") {
+      const radius = magnets.hole_w / 2;
+      const steps = 32;
+      for (let index = 0; index < steps; index += 1) {
+        const a0 = (index / steps) * Math.PI * 2;
+        const a1 = ((index + 1) / steps) * Math.PI * 2;
+        const x0 = cx + radius * Math.cos(a0);
+        const y0 = cy + radius * Math.sin(a0);
+        const x1 = cx + radius * Math.cos(a1);
+        const y1 = cy + radius * Math.sin(a1);
+        pushEdge(positions, width, height, x0, y0, magnets.z0, x1, y1, magnets.z0);
+        pushEdge(positions, width, height, x0, y0, magnets.z1, x1, y1, magnets.z1);
+        if (index % 8 === 0) pushEdge(positions, width, height, x0, y0, magnets.z0, x0, y0, magnets.z1);
+      }
+    } else {
+      const halfW = magnets.hole_w / 2;
+      const halfH = magnets.hole_h / 2;
+      const corners = [
+        [cx - halfW, cy - halfH],
+        [cx + halfW, cy - halfH],
+        [cx + halfW, cy + halfH],
+        [cx - halfW, cy + halfH],
+      ];
+      for (const z of [magnets.z0, magnets.z1]) {
+        for (let index = 0; index < 4; index += 1) {
+          const start = corners[index];
+          const end = corners[(index + 1) % 4];
+          pushEdge(positions, width, height, start[0], start[1], z, end[0], end[1], z);
+        }
+      }
+      for (const corner of corners) {
+        pushEdge(positions, width, height, corner[0], corner[1], magnets.z0, corner[0], corner[1], magnets.z1);
+      }
+    }
+  }
+  return positions;
+}
+
+function pushEdge(positions, width, height, x0, y0, z0, x1, y1, z1) {
+  positions.push(x0 - width / 2, z0, -(y0 - height / 2));
+  positions.push(x1 - width / 2, z1, -(y1 - height / 2));
 }
 
 function renderSwatches(parts) {
@@ -294,8 +415,10 @@ function applyOrientation() {
     ? "Ridges run sideways. Tip the plate up or down to switch pictures, like a Clean / Dirty magnet."
     : "Ridges run up and down. Tip the plate left or right to switch pictures.";
   document.getElementById("resolution-hint").textContent = horizontal
-    ? "Each row of the picture is one ridge. A larger plate keeps this pitch, so a tall plate holds far more detail. A 0.4 mm nozzle starts at 0.8 mm pitch and 0.4 mm rows."
-    : "Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so 300 mm across holds far more of the picture than 80 mm. A 0.4 mm nozzle starts at 0.8 mm pitch and 0.4 mm rows. Raise the pitch toward 1.6 mm if a slope comes out too thin.";
+    ? "Each row of the picture is one ridge. A larger plate keeps this pitch, so a tall plate holds far more detail. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge."
+    : "Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. The crest is cut flat one line in from each side, so the other picture is not printed on the tip. Rows stay 0.4 mm.";
+  document.querySelector('[data-text="left"]').placeholder = horizontal ? "Clean" : "Hello";
+  document.querySelector('[data-text="right"]').placeholder = horizontal ? "Dirty" : "Goodbye";
   const statusText = status.textContent;
   if (statusText.startsWith("Upload a ")) status.textContent = idleStatus();
 }
@@ -485,6 +608,9 @@ document.querySelectorAll("[data-clear]").forEach((button) => {
 ["base", "ridge", "pitch", "row", "max-colors", "base-color"].forEach((id) => {
   document.getElementById(id).addEventListener("input", schedule);
 });
+document.getElementById("base").addEventListener("input", () => {
+  if (!document.getElementById("base").disabled) plainBase = document.getElementById("base").value;
+});
 document.getElementById("width").addEventListener("input", () => {
   syncSize("width");
   layoutCrops();
@@ -534,6 +660,8 @@ document.getElementById("dither").addEventListener("change", schedule);
 
 document.getElementById("sample").addEventListener("click", async () => {
   document.getElementById("dither").checked = false;
+  document.getElementById("use-spools").checked = false;
+  setSpools(false);
   document.body.dataset.palette = "#ffd60a,#e63946,#0d1b2a,#4cc9f0";
   const [left, right] = await Promise.all([
     fetch("/sample/left.png").then((response) => response.blob()),
@@ -574,9 +702,166 @@ exportButton.addEventListener("click", async () => {
   }
 });
 
+const FONTS = [
+  { family: "Oswald", weight: 700 },
+  { family: "Nunito", weight: 700 },
+  { family: "Libre Baskerville", weight: 700 },
+  { family: "Inconsolata", weight: 700 },
+];
+const starterSpools = ["#111111", "#f7f4ee", "#c0392b", "#1d4e89"];
+let spools = starterSpools.slice();
+
+function renderSpools() {
+  const list = document.getElementById("spool-list");
+  list.replaceChildren();
+  spools.forEach((hex, index) => {
+    const row = document.createElement("div");
+    row.className = "spool-row";
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = hex;
+    input.setAttribute("aria-label", `Filament color ${index + 1}`);
+    input.addEventListener("input", () => {
+      spools[index] = input.value;
+      if (document.getElementById("use-spools").checked) schedule();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary";
+    remove.textContent = "\u00d7";
+    remove.setAttribute("aria-label", `Remove filament color ${index + 1}`);
+    remove.disabled = spools.length <= 1;
+    remove.addEventListener("click", () => {
+      spools.splice(index, 1);
+      renderSpools();
+      if (document.getElementById("use-spools").checked) schedule();
+    });
+    row.append(input, remove);
+    list.append(row);
+  });
+}
+
+function setSpools(on) {
+  document.getElementById("spools").hidden = !on;
+  document.getElementById("max-colors").disabled = on;
+}
+
+async function makeTextPicture(slot) {
+  const text = document.querySelector(`[data-text="${slot}"]`).value.trim();
+  if (!text) {
+    status.textContent = "Type some text first.";
+    return;
+  }
+  const family = document.querySelector(`[data-font="${slot}"]`).value;
+  const font = FONTS.find((item) => item.family === family) || FONTS[0];
+  const ink = document.querySelector(`[data-ink="${slot}"]`).value;
+  const paper = document.querySelector(`[data-paper="${slot}"]`).value;
+  const width = 1600;
+  const height = Math.max(200, Math.round(width / Math.max(plateAspect(), 0.2)));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  const spec = `${font.weight} 200px "${font.family}"`;
+  await document.fonts.load(spec);
+  context.fillStyle = paper;
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = ink;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  let size = Math.floor(Math.min(height * 0.62, 420));
+  const maxWidth = width * 0.9;
+  context.font = `${font.weight} ${size}px "${font.family}"`;
+  while (size > 24 && context.measureText(text).width > maxWidth) {
+    size -= 4;
+    context.font = `${font.weight} ${size}px "${font.family}"`;
+  }
+  context.fillText(text, width / 2, height / 2);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+  delete document.body.dataset.palette;
+  setPicture(slot, new File([blob], `${slot}-text.png`, { type: "image/png" }));
+}
+
+for (const select of document.querySelectorAll("[data-font]")) {
+  for (const font of FONTS) {
+    const option = document.createElement("option");
+    option.value = font.family;
+    option.textContent = font.family;
+    option.style.fontFamily = `"${font.family}", sans-serif`;
+    select.append(option);
+  }
+}
+document.querySelectorAll("[data-make-text]").forEach((button) => {
+  button.addEventListener("click", () => makeTextPicture(button.dataset.makeText));
+});
+document.getElementById("use-spools").addEventListener("change", () => {
+  setSpools(document.getElementById("use-spools").checked);
+  schedule();
+});
+document.getElementById("add-spool").addEventListener("click", () => {
+  if (spools.length >= 8) {
+    status.textContent = "Eight filaments is the limit.";
+    return;
+  }
+  spools.push("#888888");
+  renderSpools();
+  if (document.getElementById("use-spools").checked) schedule();
+});
+
 bindUpload("left");
 bindUpload("right");
 bindUpload("front");
 bindCrop("left");
 bindCrop("right");
 bindCrop("front");
+let plainBase = document.getElementById("base").value;
+
+function magnetBodyThickness() {
+  const shape = document.getElementById("magnet-shape").value;
+  const id = shape === "rect" ? "magnet-rect-thickness" : "magnet-thickness";
+  return Number(document.getElementById(id).value);
+}
+
+function syncMagnets() {
+  const on = document.getElementById("magnets").checked;
+  const rectangular = document.getElementById("magnet-shape").value === "rect";
+  document.getElementById("magnet-fields").hidden = !on;
+  document.getElementById("magnet-round").hidden = rectangular;
+  document.getElementById("magnet-rect").hidden = !rectangular;
+  document.getElementById("magnet-turn-label").hidden = !rectangular;
+  const base = document.getElementById("base");
+  if (!on) {
+    if (base.disabled) {
+      base.disabled = false;
+      base.value = plainBase;
+    }
+    return;
+  }
+  if (!base.disabled) plainBase = base.value;
+  base.disabled = true;
+  const total = Number(document.getElementById("magnet-below").value) + magnetBodyThickness() + Number(document.getElementById("magnet-above").value);
+  if (Number.isFinite(total) && total > 0) base.value = (Math.round(total * 10) / 10).toFixed(1);
+}
+
+document.getElementById("magnets").addEventListener("change", () => {
+  syncMagnets();
+  schedule();
+});
+document.getElementById("magnet-shape").addEventListener("change", () => {
+  syncMagnets();
+  schedule();
+});
+document.getElementById("magnet-arrange").addEventListener("change", schedule);
+document.getElementById("magnet-edge").addEventListener("input", schedule);
+document.getElementById("magnet-turn").addEventListener("change", schedule);
+document.getElementById("show-magnets").addEventListener("change", () => showMagnetLines(lastMeta));
+["magnet-count", "magnet-diameter", "magnet-thickness", "magnet-width", "magnet-length", "magnet-rect-thickness", "magnet-below", "magnet-above"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", () => {
+    syncMagnets();
+    schedule();
+  });
+});
+
+renderSpools();
+applyOrientation();
+syncMagnets();

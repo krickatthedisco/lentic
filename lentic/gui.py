@@ -98,6 +98,7 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 max_colors=_max_colors(fields),
                 dither=_flag(fields, "dither", default=True),
                 base_rgb=parse_hex(fields.get("base_color") or "#f4f1ea"),
+                nozzle_mm=_nozzle(fields),
                 orientation=orientation,
                 crops=_crops(fields, order),
                 flips=_flips(fields, order),
@@ -271,6 +272,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(body)
+
+
+def _nozzle(fields: dict[str, str]) -> float:
+    text = (fields.get("nozzle") or "").strip()
+    if not text:
+        return 0.4
+    return _millimeters(fields, "nozzle")
 
 
 def _millimeters(fields: dict[str, str], key: str) -> float:

@@ -27,10 +27,10 @@ from lentic.mesh import (
     open_pocket_base,
 )
 
-# A 0.4 mm nozzle lays a line about this wide. The crest is cut off where a
-# slope would be thinner than that, so the slicer does not print the other
-# picture on the tip.
+# A 0.4 mm nozzle lays a line about this wide. Smaller and larger nozzles
+# scale from here, so the crest is cut off one line in from the tip.
 _LINE_MM = 0.5
+_NOZZLE_MM = 0.4
 
 ANGLE_NAMES = {
     2: ("left", "right"),
@@ -432,7 +432,7 @@ def build_from_images(
         base_rgb=base_rgb,
         embed_mm=embed_mm,
         seam_mm=seam_mm,
-        line_mm=max(nozzle_mm, _LINE_MM),
+        line_mm=nozzle_mm * (_LINE_MM / _NOZZLE_MM),
         fitted=fitted,
         orientation=orientation,
         magnets=magnets,

@@ -129,7 +129,15 @@ class TestGuiServer(unittest.TestCase):
         self.assertIn("Rotate rectangular magnets", html)
         self.assertIn("Building the plate", html)
         self.assertIn("Top and bottom", html)
-        self.assertIn('id="pitch" type="number" min="0.4" step="0.1" value="4"', html)
+        self.assertIn('id="nozzle"', html)
+        self.assertIn('value="0.2"', html)
+        self.assertIn('value="0.6"', html)
+        self.assertIn('value="0.4" selected', html)
+        self.assertIn(
+            "Selecting your nozzle size automatically sets the default values to match, further adjustments may still improve image quality so play around with the values",
+            html,
+        )
+        self.assertIn('id="pitch" type="number" min="0.2" step="0.1" value="4"', html)
         self.assertIn('id="ridge" type="number" min="0.2" step="0.1" value="3.2"', html)
         self.assertIn('id="width" type="number" min="5" step="0.1" value="200"', html)
         self.assertIn('id="row" type="number" min="0.2" step="0.1" value="0.4"', html)

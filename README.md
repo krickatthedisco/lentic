@@ -58,7 +58,7 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 - **Add magnet pockets** cuts holes in the base. Pick how many, then a round magnet (diameter and thickness) or a rectangular one (width, length, and thickness). **Thickness below magnets** and **Thickness above magnets** set the plastic on each side, and the base thickness becomes the sum. **Arrangement** lines them up across the width, down the height, in a grid, or centered in a cluster. **Distance from edge** is the plastic between the outer holes and the rim. **Rotate rectangular magnets** turns each one. **Show magnet locations** draws the pockets through the plate. Pause when the pocket is full, drop the magnets in, and let the print cover them. Set **Thickness below magnets** to 0 to leave the pockets open, then glue the magnets in from the back after the print.
 - **Maintain aspect ratio** keeps the plate the same shape as the first picture. Editing width or height updates the other.
 - Drag the frame on a picture to crop it. The frame matches the plate, so the rest of the photo is not silently cut off. Corner handles resize it. **Reset crop** uses the whole picture again.
-- Ridge pitch and row size are the resolution. A larger plate keeps the same pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. Rows stay 0.4 mm.
+- **Nozzle** is 0.2, 0.3, 0.4, 0.5, or 0.6 mm. Picking one fills in the pitch, row size, ridge height, and crest line for that nozzle. Five lines stay on each slope, each row is one nozzle wide, and the ridge is 0.8 times the pitch. A 0.4 mm nozzle starts at a 4 mm pitch, a 0.4 mm row, and a 3.2 mm ridge. Change any of those afterward if you want.
 - **Add a crest line** lays one filament along the top of each ridge. It is off until you turn it on. It starts black, 0.4 mm wide and 0.2 mm tall, and both the size and the color can change. It prints as its own filament and hides the other picture when you tilt the plate.
 - The view beside the controls is the actual plate. Drag to rotate, scroll to zoom. **View from Left** and **View from Right** (or top and bottom) turn it 45 degrees so you can check one picture. Each swatch is a filament, named from its color and labeled with the hex code.
 
@@ -103,7 +103,7 @@ Open `preview.html` in that folder and drag the slider. That is the ideal view o
 1. Open `model.3mf`. It is one plate, already split into one part per color.
 2. Match each part to the filament named on it. Do not split the plate into shells.
 3. Leave the plate flat, ridges up. Standing it on its side ruins the flip.
-4. Slice at 0.2 mm layers with a 0.4 mm nozzle. Two pictures start at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge, so a side view shows one picture. Rows are 0.4 mm. If the flip is weak, raise `--ridge-height`.
+4. Slice with the nozzle you picked. A 0.4 mm nozzle starts at 0.2 mm layers, a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge, so a side view shows one picture. Rows are one nozzle wide. A smaller nozzle uses the finer pitch and row from the nozzle menu. If the flip is weak, raise the ridge height.
 
 Photos are posterized down to the filament count. Simple graphics with a few flat colors stay much cleaner. `--max-colors` can go up to the number of filaments you actually have.
 

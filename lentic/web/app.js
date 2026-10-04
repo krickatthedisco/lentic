@@ -111,6 +111,7 @@ function formData() {
   data.set("dither", document.getElementById("dither").checked ? "1" : "0");
   data.set("base_color", document.getElementById("base-color").value);
   data.set("orientation", orientation);
+  data.set("nozzle", String(numberValue("nozzle")));
   data.set("crest_line", document.getElementById("crest-line").checked ? "1" : "0");
   if (document.getElementById("crest-line").checked) {
     data.set("crest_color", document.getElementById("crest-color").value);
@@ -451,6 +452,47 @@ function idleStatus() {
     : "Upload a left picture and a right picture.";
 }
 
+const LINES_PER_SLOPE = 5;
+
+function formatMm(value) {
+  return String(Math.round(value * 100) / 100);
+}
+
+function nozzlePreset() {
+  const nozzle = Number(document.getElementById("nozzle").value);
+  const images = pictures.front ? 3 : 2;
+  const pitch = nozzle * LINES_PER_SLOPE * images;
+  return {
+    nozzle,
+    pitch,
+    row: nozzle,
+    ridge: pitch * 0.8,
+    crestWidth: nozzle,
+    crestHeight: nozzle / 2,
+  };
+}
+
+function applyNozzleDefaults() {
+  const preset = nozzlePreset();
+  document.getElementById("pitch").value = formatMm(preset.pitch);
+  document.getElementById("row").value = formatMm(preset.row);
+  document.getElementById("ridge").value = formatMm(preset.ridge);
+  document.getElementById("crest-width").value = formatMm(preset.crestWidth);
+  document.getElementById("crest-height").value = formatMm(preset.crestHeight);
+  writeResolutionHint();
+}
+
+function writeResolutionHint() {
+  const preset = nozzlePreset();
+  const nozzle = formatMm(preset.nozzle);
+  const pitch = formatMm(preset.pitch);
+  const ridge = formatMm(preset.ridge);
+  const row = formatMm(preset.row);
+  document.getElementById("resolution-hint").textContent = orientation === "horizontal"
+    ? `Each row of the picture is one ridge. A larger plate keeps this pitch, so a tall plate holds far more detail. A ${nozzle} mm nozzle starts at a ${pitch} mm pitch, five lines on each slope, and a ${ridge} mm ridge.`
+    : `Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. A ${nozzle} mm nozzle starts at a ${pitch} mm pitch, five lines on each slope, and a ${ridge} mm ridge. The crest is cut flat one line in from each side, so the other picture is not printed on the tip. Rows stay ${row} mm.`;
+}
+
 function applyOrientation() {
   const horizontal = orientation === "horizontal";
   document.getElementById("orient-vertical").setAttribute("aria-pressed", horizontal ? "false" : "true");
@@ -465,9 +507,7 @@ function applyOrientation() {
   document.getElementById("orient-hint").textContent = horizontal
     ? "Ridges run sideways. Tip the plate up or down to switch pictures, like a Clean / Dirty magnet."
     : "Ridges run up and down. Tip the plate left or right to switch pictures.";
-  document.getElementById("resolution-hint").textContent = horizontal
-    ? "Each row of the picture is one ridge. A larger plate keeps this pitch, so a tall plate holds far more detail. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge."
-    : "Each column is one ridge and each row is one band along it. A larger plate keeps this pitch, so it holds more of the picture. A 0.4 mm nozzle starts at a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge. The crest is cut flat one line in from each side, so the other picture is not printed on the tip. Rows stay 0.4 mm.";
+  writeResolutionHint();
   document.querySelector('[data-text="left"]').placeholder = horizontal ? "Clean" : "Hello";
   document.querySelector('[data-text="right"]').placeholder = horizontal ? "Dirty" : "Goodbye";
   const statusText = status.textContent;
@@ -708,6 +748,10 @@ document.getElementById("orient-horizontal").addEventListener("click", () => {
   schedule();
 });
 document.getElementById("dither").addEventListener("change", schedule);
+document.getElementById("nozzle").addEventListener("change", () => {
+  applyNozzleDefaults();
+  schedule();
+});
 
 document.getElementById("sample").addEventListener("click", async () => {
   document.getElementById("dither").checked = false;

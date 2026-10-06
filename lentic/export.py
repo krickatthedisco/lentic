@@ -301,7 +301,10 @@ def _print_notes(model: LenticModel, parts: list[tuple[MeshPart, str]]) -> str:
     ]
     for part, filename in parts:
         lines.append(f"  {filename}  #{rgb_to_hex(part.rgb)}")
-    lines.extend(["", "Lay the plate flat with the ridges facing up. Do not stand it on its side."])
+    lines.extend([
+        "",
+        "Lay the plate flat with the ridges facing up. Do not stand it on its side. Always print at 100% infill.",
+    ])
     if model.crest_width_mm > 0 and model.crest_rgb is not None:
         lines.append(
             f"A crest line {model.crest_width_mm:.2f} mm wide and {model.crest_height_mm:.2f} mm tall "

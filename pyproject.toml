@@ -1,6 +1,6 @@
 [project]
 name = "lentic"
-version = "0.5.0"
+version = "0.6.0"
 description = "Color lenticular plates for multi-filament 3D printing."
 readme = "README.md"
 requires-python = ">=3.10"

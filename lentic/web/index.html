@@ -81,35 +81,7 @@
         </div>
       </div>
     </div>
-    <div class="upload" id="slot-front">
-      <button type="button" id="pick-front">Upload front picture (Optional)</button>
-      <input id="file-front" type="file" accept="image/*" hidden>
-      <div class="text-maker" data-text-slot="front">
-        <label>Text <input type="text" data-text="front" placeholder="Hello" maxlength="40"></label>
-        <label>Font <select data-font="front"></select></label>
-        <label>Letters <input type="color" data-ink="front" value="#9a3412"></label>
-        <label>Background <input type="color" data-paper="front" value="#f7f4ee"></label>
-        <button type="button" class="secondary" data-make-text="front">Use this text</button>
-      </div>
-      <div class="chosen" hidden>
-        <div class="crop-stage" id="crop-front">
-          <img id="thumb-front" alt="">
-          <div class="crop-box">
-            <i data-handle="nw"></i><i data-handle="ne"></i><i data-handle="sw"></i><i data-handle="se"></i>
-          </div>
-          <button type="button" class="remove-picture" data-clear="front" aria-label="Remove front picture">&times;</button>
-        </div>
-        <div class="chosen-meta">
-          <span id="name-front"></span>
-          <button type="button" class="text" data-reset-crop="front">Reset crop</button>
-        </div>
-        <div class="flip-row">
-          <button type="button" class="secondary" data-flip="front" data-axis="h" aria-pressed="false">Flip horizontal</button>
-          <button type="button" class="secondary" data-flip="front" data-axis="v" aria-pressed="false">Flip vertical</button>
-        </div>
-      </div>
-    </div>
-    <p class="hint">Drag each frame to choose the part that prints. The frame matches the plate, so nothing else gets cut off. Flip horizontal or Flip vertical if a picture came in the wrong way. The front picture is optional and sits on the flat top of each ridge.</p>
+    <p class="hint">Drag each frame to choose the part that prints. The frame matches the plate, so nothing else gets cut off. Flip horizontal or Flip vertical if a picture came in the wrong way.</p>
     <button type="button" id="sample" class="secondary">Load sample pictures</button>
   </section>
 
@@ -117,8 +89,22 @@
     <h2>Part size</h2>
     <label>Width <span class="unit"><input id="width" type="number" min="5" step="0.1" value="200"> mm</span></label>
     <label>Height <span class="unit"><input id="height" type="number" min="5" step="0.1" value="112.5"> mm</span></label>
-    <label class="check"><input id="lock-aspect" type="checkbox" checked> Maintain aspect ratio</label>
-    <p class="hint" id="aspect-hint">Editing width or height updates the other. A picture sets the proportion.</p>
+    <label>Aspect <span class="unit">
+      <select id="aspect">
+        <option value="picture" selected>Match picture</option>
+        <option value="free">Free</option>
+        <option value="1:1">Square (1:1)</option>
+        <option value="4:3">4:3</option>
+        <option value="3:2">3:2</option>
+        <option value="5:4">5:4</option>
+        <option value="16:9">16:9</option>
+        <option value="2:1">2:1</option>
+        <option value="3:4">3:4</option>
+        <option value="2:3">2:3</option>
+        <option value="9:16">9:16</option>
+      </select>
+    </span></label>
+    <p class="hint" id="aspect-hint">The crop frame uses this shape. Match picture follows the first picture. Free lets you set width and height separately.</p>
     <label>Base thickness <span class="unit"><input id="base" type="number" min="0.2" step="0.1" value="0.8"> mm</span></label>
     <label class="check"><input id="magnets" type="checkbox"> Add magnet pockets</label>
     <div id="magnet-fields" hidden>
@@ -198,7 +184,7 @@
   </section>
 
   <button type="button" id="export-stl" disabled>Export for slicer</button>
-  <p class="hint">One 3MF file. One part per color, already assembled, so the slicer can print each color as its own filament.</p>
+  <p class="hint">One 3MF file. One part per color, already assembled, so the slicer can print each color as its own filament. Lay the plate flat with the ridges facing up. Do not stand it on its side. Always print at 100% infill.</p>
   <p id="status" role="status">Upload a left picture and a right picture.</p>
 </aside>
 <main>

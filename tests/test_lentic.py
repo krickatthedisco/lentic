@@ -255,7 +255,12 @@ class TestBuild(unittest.TestCase):
         self.assertGreater(points[:, 2].min(), colors[:, 2].max())
         from lentic.export import _print_notes
 
-        self.assertIn("0.40 mm wide and 0.20 mm tall", _print_notes(model, []))
+        notes = _print_notes(model, [])
+        self.assertIn("0.40 mm wide and 0.20 mm tall", notes)
+        self.assertIn(
+            "Lay the plate flat with the ridges facing up. Do not stand it on its side. Always print at 100% infill.",
+            notes,
+        )
 
     def test_a_crest_line_follows_sideways_ridges(self):
         left = np.zeros((1, 1), dtype=np.int32)

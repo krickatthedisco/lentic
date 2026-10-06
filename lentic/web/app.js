@@ -1,15 +1,25 @@
 import * as THREE from "three";
 import { OrbitControls } from "/vendor/OrbitControls.js";
 
-const pictures = { left: null, right: null, front: null };
+const pictures = { left: null, right: null };
 const flips = {
   left: { h: false, v: false },
   right: { h: false, v: false },
-  front: { h: false, v: false },
 };
-const crops = { left: null, right: null, front: null };
-const imageAspects = { left: null, right: null, front: null };
-const cropCustom = { left: false, right: false, front: false };
+const crops = { left: null, right: null };
+const imageAspects = { left: null, right: null };
+const cropCustom = { left: false, right: false };
+const ASPECT_RATIOS = {
+  "1:1": 1,
+  "4:3": 4 / 3,
+  "3:2": 3 / 2,
+  "5:4": 5 / 4,
+  "16:9": 16 / 9,
+  "2:1": 2,
+  "3:4": 3 / 4,
+  "2:3": 2 / 3,
+  "9:16": 9 / 16,
+};
 let orientation = "vertical";
 let pictureAspect = null;
 let lockedAspect = 200 / 112.5;
@@ -158,12 +168,6 @@ function formData() {
   if (secondCrop) data.set(`crop_${second}`, secondCrop);
   writeFlip(data, first, "left");
   writeFlip(data, second, "right");
-  if (pictures.front) {
-    data.set("front", pictures.front, pictures.front.name);
-    const frontCrop = cropValue("front");
-    if (frontCrop) data.set("crop_front", frontCrop);
-    writeFlip(data, "front", "front");
-  }
   return data;
 }
 
@@ -467,8 +471,7 @@ function readMm(id) {
 
 function nozzlePreset() {
   const nozzle = Number(document.getElementById("nozzle").value);
-  const images = pictures.front ? 3 : 2;
-  const pitch = nozzle * LINES_PER_SLOPE * images;
+  const pitch = nozzle * LINES_PER_SLOPE * 2;
   return {
     nozzle,
     pitch,
@@ -498,7 +501,7 @@ function writeResolutionHint() {
   const crestHeight = readMm("crest-height");
   const layer = readMm("layer-height");
   const initial = readMm("initial-layer");
-  const slope = pictures.front ? 0.25 : 0.5;
+  const slope = 0.5;
   const lines = nozzle > 0 ? (pitch * slope) / nozzle : 0;
   const flat = nozzle * 1.25;
   const lead = orientation === "horizontal"
@@ -533,8 +536,33 @@ function applyOrientation() {
   if (statusText.startsWith("Upload a ")) status.textContent = idleStatus();
 }
 
+function aspectChoice() {
+  return document.getElementById("aspect").value;
+}
+
+function aspectLocked() {
+  return aspectChoice() !== "free";
+}
+
+function applyAspectChoice() {
+  const choice = aspectChoice();
+  if (choice === "free") return;
+  if (choice === "picture") {
+    if (pictureAspect) {
+      lockedAspect = pictureAspect;
+    } else {
+      const width = Number(document.getElementById("width").value);
+      const height = Number(document.getElementById("height").value);
+      if (width > 0 && height > 0) lockedAspect = width / height;
+    }
+  } else {
+    lockedAspect = ASPECT_RATIOS[choice];
+  }
+  syncSize("width");
+}
+
 function syncSize(source) {
-  if (!lockedAspect || !document.getElementById("lock-aspect").checked) return;
+  if (!aspectLocked()) return;
   const widthInput = document.getElementById("width");
   const heightInput = document.getElementById("height");
   if (source === "width") {
@@ -573,7 +601,7 @@ function placeCrop(slot) {
 
 function layoutCrops() {
   const frame = plateAspect();
-  for (const slot of ["left", "right", "front"]) {
+  for (const slot of ["left", "right"]) {
     if (!imageAspects[slot]) continue;
     crops[slot] = cropCustom[slot] && crops[slot]
       ? refitCrop(crops[slot], imageAspects[slot], frame)
@@ -627,7 +655,7 @@ async function measurePicture(slot, file) {
   document.getElementById(`crop-${slot}`).style.aspectRatio = `${image.naturalWidth} / ${image.naturalHeight}`;
   if (slot === "left") {
     pictureAspect = imageAspects.left;
-    if (document.getElementById("lock-aspect").checked) {
+    if (aspectChoice() === "picture") {
       lockedAspect = pictureAspect;
       syncSize("width");
     }
@@ -746,18 +774,10 @@ document.querySelectorAll("[data-reset-crop]").forEach((button) => {
     schedule();
   });
 });
-document.getElementById("lock-aspect").addEventListener("change", () => {
-  const locked = document.getElementById("lock-aspect").checked;
-  if (!locked) return;
-  if (pictureAspect) {
-    lockedAspect = pictureAspect;
-    syncSize("width");
-    schedule();
-    return;
-  }
-  const width = Number(document.getElementById("width").value);
-  const height = Number(document.getElementById("height").value);
-  if (width > 0 && height > 0) lockedAspect = width / height;
+document.getElementById("aspect").addEventListener("change", () => {
+  applyAspectChoice();
+  layoutCrops();
+  schedule();
 });
 document.getElementById("orient-vertical").addEventListener("click", () => {
   if (orientation === "vertical") return;
@@ -960,10 +980,8 @@ document.getElementById("add-spool").addEventListener("click", () => {
 
 bindUpload("left");
 bindUpload("right");
-bindUpload("front");
 bindCrop("left");
 bindCrop("right");
-bindCrop("front");
 let plainBase = document.getElementById("base").value;
 
 function magnetBodyThickness() {

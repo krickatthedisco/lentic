@@ -1,6 +1,6 @@
 # Lentic
 
-Lentic turns two or three pictures into a 3D-printable plate that flips between them as you tilt it. Each picture is matched to filament colors, then built as its own solid so a multi-material slicer (Bambu AMS, Prusa MMU, OrcaSlicer, PrusaSlicer) can print the color.
+Lentic turns two pictures into a 3D-printable plate that flips between them as you tilt it. Each picture is matched to filament colors, then built as its own solid so a multi-material slicer (Bambu AMS, Prusa MMU, OrcaSlicer, PrusaSlicer) can print the color.
 
 The design window runs in your browser, on your computer. Pictures are not uploaded anywhere.
 
@@ -18,7 +18,7 @@ image A          image B
   +----------+  base
 ```
 
-From the left you see the first image. From the right you see the second. **Top and bottom** turns the ridges sideways, so tipping the plate up or down switches the pictures (a Clean / Dirty dishwasher magnet is one use case). With three images, the flat top shows the middle one when you look straight on. Straight down, both slopes show up as stripes.
+From the left you see the first image. From the right you see the second. **Top and bottom** turns the ridges sideways, so tipping the plate up or down switches the pictures (a Clean / Dirty dishwasher magnet is one use case). Straight down, both slopes show up as stripes.
 
 ## Run it
 
@@ -56,7 +56,7 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 - Each picture can be words instead of a photo. Type the text, pick an open-source font, choose the letter and background colors, then **Use this text**.
 - **Use my filament colors** prints with the spools you pick. Add or remove colors, up to eight. Leave it off and Lentic chooses the colors from the pictures.
 - **Add magnet pockets** cuts holes in the base. Pick how many, then a round magnet (diameter and thickness) or a rectangular one (width, length, and thickness). **Thickness below magnets** and **Thickness above magnets** set the plastic on each side, and the base thickness becomes the sum. **Arrangement** lines them up across the width, down the height, in a grid, or centered in a cluster. **Distance from edge** is the plastic between the outer holes and the rim. **Rotate rectangular magnets** turns each one. **Show magnet locations** draws the pockets through the plate. Pause when the pocket is full, drop the magnets in, and let the print cover them. Set **Thickness below magnets** to 0 to leave the pockets open, then glue the magnets in from the back after the print.
-- **Maintain aspect ratio** keeps the plate the same shape as the first picture. Editing width or height updates the other.
+- **Aspect** sets the plate and the crop frame. Match picture follows the first picture. Free lets you set width and height separately. Square (1:1), 4:3, 3:2, 5:4, 16:9, 2:1, 3:4, 2:3, and 9:16 are the fixed shapes.
 - Drag the frame on a picture to crop it. The frame matches the plate, so the rest of the photo is not silently cut off. Corner handles resize it. **Reset crop** uses the whole picture again.
 - The base starts black. Change **Base color** if the backing should be another filament.
 - **Nozzle** is 0.2, 0.3, 0.4, 0.5, or 0.6 mm. Picking one fills in the pitch, row size, ridge height, and crest line width for that nozzle. Five lines stay on each slope, each row is one nozzle wide, and the ridge is 0.8 times the pitch. A 0.4 mm nozzle starts at a 4 mm pitch, a 0.4 mm row, and a 3.2 mm ridge. The tip is cut flat 0.5 mm in from each side, and that cut is 1.25 times the nozzle width. Change any of those afterward if you want.
@@ -64,7 +64,7 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 - **Add a crest line** lays one filament along the top of each ridge. It is off until you turn it on. It starts black, 0.4 mm wide and 0.2 mm tall, and both the size and the color can change. It prints as its own filament and hides the other picture when you tilt the plate.
 - The view beside the controls is the actual plate. Drag to rotate, scroll to zoom. **View from Left** and **View from Right** (or top and bottom) turn it 45 degrees so you can check one picture. Each swatch is a filament, named from its color and labeled with the hex code.
 
-**Export for slicer** downloads `lentic-plate.3mf`. It opens as one plate with one part per color, already assembled. Match each part to the filament named on it, then slice. Do not split the plate into shells. An STL cannot keep those colors as separate parts: a slicer breaks it into one piece per ridge.
+**Export for slicer** downloads `lentic-plate.3mf`. It opens as one plate with one part per color, already assembled. Match each part to the filament named on it, then slice. Do not split the plate into shells. An STL cannot keep those colors as separate parts: a slicer breaks it into one piece per ridge. Lay the plate flat with the ridges facing up. Do not stand it on its side. Always print at 100% infill.
 
 ## Make a plate from the command line
 
@@ -72,7 +72,7 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 lentic left.png right.png --width 120 --out plate
 ```
 
-`--width` is millimeters. Height follows the first image unless you pass `--height`. The first file is the left view, the second is the right view, and an optional third file is the front view. Add `--horizontal` to switch top and bottom instead. In that mode the first file is the top view and the second is the bottom view.
+`--width` is millimeters. Height follows the first image unless you pass `--height`. The first file is the left view and the second is the right view. Add `--horizontal` to switch top and bottom instead. In that mode the first file is the top view and the second is the bottom view.
 
 Colors are chosen automatically (four filaments) and dithered. Small distinct areas, such as a patch of blue, are kept when the filament count allows. For flat graphics, name the filaments yourself and turn dithering off:
 
@@ -104,7 +104,7 @@ Open `preview.html` in that folder and drag the slider. That is the ideal view o
 
 1. Open `model.3mf`. It is one plate, already split into one part per color.
 2. Match each part to the filament named on it. Do not split the plate into shells.
-3. Leave the plate flat, ridges up. Standing it on its side ruins the flip.
+3. Leave the plate flat, ridges up. Standing it on its side ruins the flip. Always print at 100% infill.
 4. Slice with the nozzle you picked. A 0.4 mm nozzle starts at 0.2 mm layers, a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge, so a side view shows one picture. Rows are one nozzle wide. A smaller nozzle uses the finer pitch and row from the nozzle menu. If the flip is weak, raise the ridge height.
 
 Photos are posterized down to the filament count. Simple graphics with a few flat colors stay much cleaner. `--max-colors` can go up to the number of filaments you actually have.

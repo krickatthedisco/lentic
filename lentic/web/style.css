@@ -117,7 +117,8 @@ label { display: flex; justify-content: space-between; align-items: center; gap:
 label.check { justify-content: flex-start; }
 .unit { display: flex; align-items: center; gap: 6px; color: #44403c; }
 input[type="number"] { width: 88px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; }
-#magnet-fields select, #nozzle { width: 140px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; font: inherit; }
+#magnet-fields select, #nozzle, #aspect { width: 140px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; font: inherit; }
+#aspect { width: 168px; }
 #magnet-fields[hidden], #magnet-round[hidden], #magnet-rect[hidden], #magnet-turn-label[hidden] { display: none; }
 input[type="color"] { width: 42px; height: 28px; padding: 0; border: 1px solid #a8a29e; background: #fff; }
 .text-maker {

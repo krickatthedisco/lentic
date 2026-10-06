@@ -140,6 +140,38 @@
       <label class="check"><input id="show-magnets" type="checkbox" checked> Show magnet locations</label>
       <p class="hint" id="magnet-hint">The base is the plastic below the magnets, plus the magnet, plus the plastic above them. Pause when the pocket is full, drop the magnets in, then let the print cover them. Each hole is 0.4 mm larger so the magnet drops in. Show magnet locations draws those pockets through the plate.</p>
     </div>
+    <label class="check"><input id="frame" type="checkbox"> Frame?</label>
+    <div id="frame-fields" hidden>
+      <label>Style <span class="unit">
+        <select id="frame-style">
+          <option value="raised" selected>Raised lip</option>
+          <option value="bevel">Beveled</option>
+          <option value="groove">Grooved</option>
+        </select>
+      </span></label>
+      <label>Border width <span class="unit"><input id="frame-border" type="number" min="1" step="0.5" value="10"> mm</span></label>
+      <label>Corner radius <span class="unit"><input id="frame-corner" type="number" min="0" step="0.5" value="0"> mm</span></label>
+      <label>Frame color <span class="unit"><input id="frame-color" type="color" value="#000000"></span></label>
+      <p class="hint">A raised lip is as thick as the whole plate, up to the ridge tips. A bevel slopes down toward the outside. A groove is a curved channel in the top of the frame. Rounded corners follow the outside. A tall lip can block the view at the very edge.</p>
+      <label>Hanging <span class="unit">
+        <select id="frame-hanger">
+          <option value="none" selected>None</option>
+          <option value="string">String</option>
+          <option value="nail">Nail</option>
+        </select>
+      </span></label>
+      <div id="frame-hole-fields" hidden>
+        <label><span id="frame-hole-label">Hole diameter</span> <span class="unit"><input id="frame-hole" type="number" min="0.5" step="0.1" value="3"> mm</span></label>
+        <label id="frame-head-row" hidden>Head diameter <span class="unit"><input id="frame-head" type="number" min="1" step="0.1" value="4.5"> mm</span></label>
+        <label>Distance below the top edge <span class="unit"><input id="frame-drop" type="number" min="0.5" step="0.1" value="4"> mm</span></label>
+        <label><span id="frame-below-label">Thickness below the hole</span> <span class="unit"><input id="frame-below" type="number" min="0" step="0.1" value="0.8"> mm</span></label>
+        <label><span id="frame-above-label">Thickness above the hole</span> <span class="unit"><input id="frame-above" type="number" min="0.2" step="0.1" value="0.8"> mm</span></label>
+        <p class="hint" id="frame-string-hint">String holes run at 45 degrees through each top corner, from the top edge out the side, centered this far below the top.</p>
+        <p class="hint" id="frame-nail-hint" hidden>The pocket opens on the back. The screw head drops into the round hole, then the frame slides down and the head catches in the wider space at the top.</p>
+        <p class="hint" id="frame-hole-hint"></p>
+        <label class="check"><input id="show-hanger" type="checkbox" checked> Show hanger holes</label>
+      </div>
+    </div>
     <label>Ridge height <span class="unit"><input id="ridge" type="number" min="0.2" step="0.1" value="1.28"> mm</span></label>
     <label class="check"><input id="crest-line" type="checkbox" checked> Add a crest line</label>
     <div id="crest-fields">
@@ -200,6 +232,12 @@
         <button type="button" id="view-second" class="secondary">View from Right</button>
       </div>
       <button type="button" id="reset-view" class="secondary">Reset view</button>
+      <label id="bed-size" title="The grid is your printer bed, centered under the plate.">Grid size
+        <input id="bed-width" type="number" min="20" step="10" value="200">
+        <span>×</span>
+        <input id="bed-depth" type="number" min="20" step="10" value="200">
+        mm
+      </label>
       <p>Drag to rotate. Scroll to zoom.</p>
       <ul id="swatches"></ul>
     </div>

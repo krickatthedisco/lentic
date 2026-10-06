@@ -117,9 +117,10 @@ label { display: flex; justify-content: space-between; align-items: center; gap:
 label.check { justify-content: flex-start; }
 .unit { display: flex; align-items: center; gap: 6px; color: #44403c; }
 input[type="number"] { width: 88px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; }
-#magnet-fields select, #nozzle, #aspect { width: 140px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; font: inherit; }
+#magnet-fields select, #frame-fields select, #nozzle, #aspect { width: 140px; padding: 5px 6px; border: 1px solid #a8a29e; border-radius: 4px; background: #fff; font: inherit; }
+#frame-fields select { width: 180px; }
 #aspect { width: 168px; }
-#magnet-fields[hidden], #magnet-round[hidden], #magnet-rect[hidden], #magnet-turn-label[hidden] { display: none; }
+#magnet-fields[hidden], #magnet-round[hidden], #magnet-rect[hidden], #magnet-turn-label[hidden], #frame-fields[hidden], #frame-hole-fields[hidden], #frame-string-hint[hidden], #frame-nail-hint[hidden], #frame-head-row[hidden] { display: none; }
 input[type="color"] { width: 42px; height: 28px; padding: 0; border: 1px solid #a8a29e; background: #fff; }
 .text-maker {
   margin: 8px 0 4px;
@@ -169,7 +170,17 @@ input[type="color"] { width: 42px; height: 28px; padding: 0; border: 1px solid #
   align-items: center;
   pointer-events: none;
 }
-#hud button, #hud ul, #views { pointer-events: auto; }
+#hud button, #hud ul, #views, #bed-size { pointer-events: auto; }
+#bed-size {
+  width: auto;
+  flex: 0 0 auto;
+  gap: 4px;
+  margin: 0;
+  background: rgba(247, 244, 238, 0.92);
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+#bed-size input { width: 64px; padding: 3px 4px; }
 #views { display: flex; flex-direction: column; gap: 6px; }
 #hud p { margin: 0; color: #44403c; }
 #swatches { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }

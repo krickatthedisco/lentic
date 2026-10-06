@@ -1,12 +1,12 @@
 [project]
 name = "lentic"
-version = "0.6.1"
+version = "0.7.0"
 description = "Color lenticular plates for multi-filament 3D printing."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "Tyler" }]
-dependencies = ["numpy>=1.24", "pillow>=10"]
+dependencies = ["numpy>=1.24", "pillow>=10", "manifold3d>=3.0"]
 
 [project.scripts]
 lentic = "lentic.cli:main"

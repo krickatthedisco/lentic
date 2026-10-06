@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from lentic.build import MagnetSpec, _open_rgb, build_from_images, build_from_indices
+from lentic.build import FrameSpec, MagnetSpec, _open_rgb, build_from_images, build_from_indices
 from lentic.cli import main
 from lentic.color import choose_palette, floyd_steinberg, median_cut, nearest_indices, parse_hex
 from lentic.export import export_model
@@ -712,6 +712,137 @@ class TestMagnets(unittest.TestCase):
         base = next(part for part in model.parts if part.role == "base")
         hole = (8 + spec.clearance_mm) * (4 + spec.clearance_mm) * 1
         self.assertAlmostEqual(mesh_volume(base.triangles), 40 * 20 * 2.3 - 2 * hole, places=3)
+
+
+class TestFrame(unittest.TestCase):
+    def _plate(self, **kwargs):
+        left = np.zeros((4, 4), dtype=np.uint8)
+        right = np.ones((4, 4), dtype=np.uint8)
+        settings = {
+            "width_mm": 40,
+            "height_mm": 20,
+            "base_mm": 0.8,
+            "ridge_height_mm": 1.0,
+            "embed_mm": 0.05,
+            "seam_mm": 0,
+        }
+        settings.update(kwargs)
+        return build_from_indices([left, right], PALETTE[:2], **settings)
+
+    def _base(self, model):
+        return next(part for part in model.parts if part.role == "base")
+
+    def _frame(self, model):
+        return next(part for part in model.parts if part.role == "frame")
+
+    def test_a_raised_frame_grows_around_the_picture(self):
+        plain = self._plate()
+        framed = self._plate(frame=FrameSpec("raised", 10, 0, "none"))
+        self.assertAlmostEqual(mesh_volume(self._base(plain).triangles), 40 * 20 * 0.8, places=3)
+        self.assertAlmostEqual(mesh_volume(self._base(framed).triangles), 40 * 20 * 0.8, places=3)
+        ring = ((40 + 20) * (20 + 20) - 40 * 20) * (0.8 + 1.0)
+        self.assertAlmostEqual(mesh_volume(self._frame(framed).triangles), ring, delta=1.0)
+        points = self._frame(framed).triangles.reshape(-1, 3)
+        self.assertAlmostEqual(points[:, 0].min(), -10, places=4)
+        self.assertAlmostEqual(points[:, 0].max(), 50, places=4)
+        self.assertAlmostEqual(points[:, 1].min(), -10, places=4)
+        self.assertAlmostEqual(points[:, 1].max(), 30, places=4)
+        self.assertAlmostEqual(points[:, 2].max(), 1.8, places=4)
+
+    def test_the_frame_can_be_its_own_color(self):
+        model = self._plate(frame=FrameSpec("raised", 8, 0, "none"), frame_rgb=(20, 40, 60))
+        self.assertEqual(self._frame(model).rgb, (20, 40, 60))
+        self.assertEqual(self._base(model).rgb, (0, 0, 0))
+
+    def test_rounded_corners_leave_out_the_sharp_corner(self):
+        model = self._plate(frame=FrameSpec("raised", 10, 4, "none"))
+        points = self._frame(model).triangles.reshape(-1, 3)
+        sharp = np.array([-10.0, -10.0])
+        self.assertGreater(np.min(np.linalg.norm(points[:, :2] - sharp, axis=1)), 1.0)
+
+    def test_a_raised_lip_reaches_the_ridge_tips(self):
+        model = self._plate(frame=FrameSpec("raised", 8, 0, "none"))
+        points = self._frame(model).triangles.reshape(-1, 3)
+        self.assertAlmostEqual(points[:, 2].max(), 0.8 + 1.0, places=4)
+        self.assertAlmostEqual(model.base_mm, 0.8)
+
+    def test_a_bevel_slopes_down_at_the_outside(self):
+        raised = self._plate(frame=FrameSpec("raised", 10, 0, "none"))
+        beveled = self._plate(frame=FrameSpec("bevel", 10, 0, "none"))
+        raised_volume = mesh_volume(self._frame(raised).triangles)
+        beveled_volume = mesh_volume(self._frame(beveled).triangles)
+        self.assertLess(beveled_volume, raised_volume - 5)
+        self.assertGreater(beveled_volume, raised_volume * 0.7)
+        points = self._frame(beveled).triangles.reshape(-1, 3)
+        outside = points[np.linalg.norm(points[:, :2] - np.array([20.0, -10.0]), axis=1) < 0.8]
+        self.assertGreater(len(outside), 0)
+        self.assertLess(outside[:, 2].max(), 1.3)
+        self.assertAlmostEqual(points[:, 2].max(), 1.8, places=3)
+
+    def test_a_groove_dips_below_the_lip(self):
+        model = self._plate(frame=FrameSpec("groove", 10, 4, "none"))
+        points = self._frame(model).triangles.reshape(-1, 3)
+        valley = points[np.linalg.norm(points[:, :2] - np.array([20.0, -5.0]), axis=1) < 1.2]
+        dipped = valley[valley[:, 2] > 0.3]
+        self.assertGreater(len(dipped), 0)
+        self.assertLess(dipped[:, 2].min(), 1.4)
+        self.assertAlmostEqual(points[:, 2].max(), 1.8, places=3)
+        sharp = np.array([-10.0, -10.0])
+        self.assertGreater(np.min(np.linalg.norm(points[:, :2] - sharp, axis=1)), 1.0)
+
+    def test_a_flat_brim_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._plate(frame=FrameSpec("flat", 10, 0, "none"))
+
+    def test_string_holes_thicken_the_base_and_cut_the_top_corners(self):
+        spec = FrameSpec("raised", 10, 0, "string", hole_mm=3, drop_mm=4, below_mm=0.8, above_mm=0.8)
+        model = self._plate(frame=spec)
+        self.assertAlmostEqual(model.base_mm, 4.6)
+        self.assertEqual(len(model.frame_holes), 2)
+        self.assertAlmostEqual(mesh_volume(self._base(model).triangles), 40 * 20 * 4.6, places=2)
+        ring = (60 * 40 - 40 * 20) * (4.6 + 1.0)
+        length = 2 * 4 * math.sqrt(2)
+        removed = 2 * math.pi * 1.5 * 1.5 * length
+        self.assertAlmostEqual(mesh_volume(self._frame(model).triangles), ring - removed, delta=removed * 0.12)
+        points = self._frame(model).triangles.reshape(-1, 3)
+        exits = (np.array([42.0, 30.0]), np.array([50.0, 22.0]), np.array([-2.0, 30.0]), np.array([-10.0, 22.0]))
+        for exit_point in exits:
+            self.assertLess(np.min(np.linalg.norm(points[:, :2] - exit_point, axis=1)), 1.6)
+        side = points[(np.abs(points[:, 0] + 10.0) < 0.4) & (np.abs(points[:, 2] - 2.3) < 1.2)]
+        self.assertLess(side[:, 1].min(), 20.6)
+        self.assertGreater(side[:, 1].max(), 23.4)
+
+    def test_a_nail_pocket_catches_the_head(self):
+        spec = FrameSpec("raised", 10, 0, "nail", hole_mm=3, drop_mm=4, below_mm=0.8, above_mm=0.8, head_mm=4.5)
+        model = self._plate(frame=spec)
+        self.assertEqual(len(model.frame_holes), 1)
+        self.assertAlmostEqual(model.base_mm, 2.6, places=2)
+        hole = model.frame_holes[0]
+        frame = self._frame(model).triangles
+        entry = hole["start"]
+        rest = hole["end"]
+        self.assertFalse(_covers(frame, entry[0], entry[1], 0.0))
+        self.assertTrue(_covers(frame, rest[0] + hole["radius"] + 0.4, rest[1], 0.0))
+        self.assertTrue(_covers(frame, rest[0] + hole["radius"] + 0.4, rest[1], hole["lip"]))
+        self.assertTrue(_covers(frame, rest[0], rest[1], model.base_mm + model.grid.ridge_height_mm))
+        solid = (60 * 40 - 40 * 20) * (model.base_mm + 1.0)
+        self.assertLess(mesh_volume(frame), solid - 20)
+
+    def test_a_hole_that_does_not_fit_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self._plate(frame=FrameSpec("raised", 8, 0, "string", hole_mm=3, drop_mm=7, below_mm=0.8, above_mm=0.8))
+        with self.assertRaises(ValueError):
+            self._plate(frame=FrameSpec("raised", 10, 8, "string", hole_mm=3, drop_mm=4, below_mm=0.8, above_mm=0.8))
+        with self.assertRaises(ValueError):
+            self._plate(frame=FrameSpec("raised", 10, 0, "nail", hole_mm=3, head_mm=12, drop_mm=4, below_mm=0.8, above_mm=0.8))
+
+    def test_a_sideways_plate_keeps_the_frame_on_the_top(self):
+        spec = FrameSpec("raised", 6, 2, "nail", hole_mm=2, head_mm=2.4, drop_mm=2.0, below_mm=0.4, above_mm=0.4)
+        model = self._plate(orientation="horizontal", frame=spec)
+        self.assertEqual(model.orientation, "horizontal")
+        points = self._frame(model).triangles.reshape(-1, 3)
+        self.assertAlmostEqual(points[:, 1].max(), 20 + 6, places=3)
+        self.assertFalse(_covers(self._frame(model).triangles, 20.0, model.frame_holes[0]["start"][1], 0.0))
 
 
 def _covers(triangles: np.ndarray, x: float, y: float, z: float) -> bool:

@@ -17,9 +17,13 @@ from PIL import Image, ImageOps
 
 from lentic.color import as_rgb_array, choose_palette, floyd_steinberg, nearest_indices
 from lentic.mesh import (
+    border_mesh,
     box_mesh,
     circle_polygon,
     cylinder_cavity,
+    cylinder_solid,
+    difference,
+    keyhole_solid,
     extrude_ring,
     extrude_trapezoids,
     extrude_xz,
@@ -99,6 +103,36 @@ class MagnetSpec:
         return wide, tall
 
 
+@dataclass(frozen=True)
+class FrameSpec:
+    """A border around the plate. String holes follow the usual corner tunnel."""
+
+    style: str
+    border_mm: float
+    corner_mm: float
+    hanger: str
+    hole_mm: float = 3.0
+    drop_mm: float = 4.0
+    below_mm: float = 0.8
+    above_mm: float = 0.8
+    head_mm: float = 4.5
+
+    def cavity_mm(self) -> float:
+        """How deep the screw head sits, past the lip."""
+        return max(1.6, min(self.head_mm * 0.45, 4.0))
+
+    def required_base(self, ridge_mm: float) -> float:
+        """Base thickness the hanger needs. A nail pocket uses the frame depth."""
+        if self.hanger == "none":
+            return 0.0
+        if self.hanger == "string":
+            return self.below_mm + self.hole_mm + self.above_mm
+        needed = self.below_mm + self.cavity_mm() + self.above_mm - max(ridge_mm, 0.0)
+        if needed <= 0:
+            return 0.0
+        return round(needed + 1e-9, 1)
+
+
 @dataclass
 class LenticModel:
     grid: Grid
@@ -114,6 +148,8 @@ class LenticModel:
     top_preview: np.ndarray | None = None
     magnets: MagnetSpec | None = None
     magnet_places: list[tuple[float, float]] = field(default_factory=list)
+    frame: FrameSpec | None = None
+    frame_holes: list[dict] = field(default_factory=list)
     crest_width_mm: float = 0.0
     crest_height_mm: float = 0.0
     crest_rgb: tuple[int, int, int] | None = None
@@ -181,6 +217,8 @@ def build_from_indices(
     crest_height_mm: float = 0.2,
     layer_height_mm: float = 0.2,
     initial_layer_mm: float = 0.2,
+    frame: FrameSpec | None = None,
+    frame_rgb: tuple[int, int, int] = (0, 0, 0),
 ) -> LenticModel:
     if len(indices) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
@@ -189,6 +227,14 @@ def build_from_indices(
         if magnets.above_mm <= embed_mm:
             raise ValueError("thickness above the magnets has to leave plastic between the pockets and the ridges")
         base_mm = magnets.required_base()
+    if frame is not None:
+        _check_frame(frame)
+        if frame.hanger != "none":
+            ridge = ridge_height_mm if ridge_height_mm is not None and ridge_height_mm > 0 else None
+            if ridge is None:
+                ridges = max(int(np.asarray(indices[0]).shape[1]), 1)
+                ridge = (width_mm / ridges) * 0.8
+            base_mm = max(base_mm, frame.required_base(ridge))
     if orientation == "horizontal":
         model = _build_horizontal(
             indices,
@@ -211,6 +257,8 @@ def build_from_indices(
         )
         if magnets is not None:
             _install_magnets(model, magnets)
+        if frame is not None:
+            _install_frame(model, frame, frame_rgb)
         return model
     palette = as_rgb_array(palette)
     shapes = {idx.shape for idx in indices}
@@ -365,6 +413,8 @@ def build_from_indices(
     )
     if magnets is not None:
         _install_magnets(model, magnets)
+    if frame is not None:
+        _install_frame(model, frame, frame_rgb)
     return model
 
 
@@ -395,6 +445,8 @@ def build_from_images(
     crest_height_mm: float = 0.2,
     layer_height_mm: float = 0.2,
     initial_layer_mm: float = 0.2,
+    frame: FrameSpec | None = None,
+    frame_rgb: tuple[int, int, int] = (0, 0, 0),
 ) -> LenticModel:
     if len(paths) not in ANGLE_NAMES:
         raise ValueError("use 2 images or 3")
@@ -460,6 +512,8 @@ def build_from_images(
         crest_height_mm=crest_height_mm,
         layer_height_mm=layer_height_mm,
         initial_layer_mm=initial_layer_mm,
+        frame=frame,
+        frame_rgb=frame_rgb,
     )
 
 
@@ -643,6 +697,294 @@ def _crest_boxes(
         for ridge in range(grid.n_ridges)
     ]
     return np.ascontiguousarray(np.concatenate(boxes))
+
+
+def _check_frame(spec: FrameSpec) -> None:
+    if spec.style not in {"raised", "bevel", "groove"}:
+        raise ValueError("frame style must be a raised lip, a bevel, or a groove")
+    if spec.hanger not in {"none", "string", "nail"}:
+        raise ValueError("frame hanger must be none, string, or a nail")
+    if spec.border_mm <= 0:
+        raise ValueError("the frame border must be greater than 0")
+    if spec.corner_mm < 0:
+        raise ValueError("corner radius must be zero or more")
+    if spec.corner_mm - spec.border_mm > 1e-6:
+        raise ValueError("corner radius has to be no larger than the border width")
+    if spec.hanger == "none":
+        return
+    if spec.hole_mm <= 0 or spec.above_mm <= 0:
+        raise ValueError("the hole, and the plastic above it, must be greater than 0")
+    if spec.below_mm < 0 or spec.drop_mm <= 0:
+        raise ValueError("plastic below the hole must be zero or more, and the hole has to sit below the top edge")
+    radius = spec.hole_mm / 2.0
+    if spec.hanger == "nail":
+        if spec.head_mm <= spec.hole_mm:
+            raise ValueError("the screw head has to be wider than the shaft, or it will not catch")
+        if spec.below_mm <= 0:
+            raise ValueError("the lip behind the nail head must be greater than 0, or the head will not catch")
+        return
+    major = radius * math.sqrt(2.0)
+    if 2.0 * spec.drop_mm - major + 1e-6 < spec.corner_mm:
+        raise ValueError(
+            "the string hole meets the rounded corner. Move it further below the top, or use a smaller hole or corner."
+        )
+    if spec.border_mm - spec.drop_mm + 1e-6 < radius:
+        raise ValueError(
+            "the string hole does not fit in the frame. Use a wider border, a smaller hole, or move it closer to the corner."
+        )
+
+
+def _rounded_loop(width: float, height: float, border: float, radius: float, steps: int = 10) -> np.ndarray:
+    """Counter-clockwise outline of the frame, picture origin at (0, 0)."""
+    x0, y0 = -border, -border
+    x1, y1 = width + border, height + border
+    if radius <= 1e-9:
+        return np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], dtype=np.float64)
+
+    def arc(cx: float, cy: float, a0: float, a1: float) -> np.ndarray:
+        angles = np.linspace(a0, a1, steps)
+        return np.column_stack((cx + radius * np.cos(angles), cy + radius * np.sin(angles)))
+
+    parts = [
+        np.array([[x0 + radius, y0], [x1 - radius, y0]], dtype=np.float64),
+        arc(x1 - radius, y0 + radius, -math.pi / 2.0, 0.0)[1:],
+        np.array([[x1, y1 - radius]], dtype=np.float64),
+        arc(x1 - radius, y1 - radius, 0.0, math.pi / 2.0)[1:],
+        np.array([[x0 + radius, y1]], dtype=np.float64),
+        arc(x0 + radius, y1 - radius, math.pi / 2.0, math.pi)[1:],
+        np.array([[x0, y0 + radius]], dtype=np.float64),
+        arc(x0 + radius, y0 + radius, math.pi, 3.0 * math.pi / 2.0)[1:],
+    ]
+    loop = np.vstack(parts)
+    if np.linalg.norm(loop[0] - loop[-1]) < 1e-8:
+        loop = loop[:-1]
+    return loop
+
+
+def _install_frame(model: LenticModel, spec: FrameSpec, rgb: tuple[int, int, int]) -> None:
+    """Add the border as its own part. Holes are cut out of that part."""
+    width = model.grid.width_mm
+    height = model.grid.height_mm
+    outer_span = min(width, height) + 2.0 * spec.border_mm
+    if spec.corner_mm * 2.0 > outer_span + 1e-6:
+        raise ValueError("corner radius is too large for this frame")
+    frame_z = model.base_mm + model.grid.ridge_height_mm
+    if spec.style == "raised":
+        outer = _rounded_loop(width, height, spec.border_mm, spec.corner_mm)
+        inner = np.array([[0.0, 0.0], [width, 0.0], [width, height], [0.0, height]], dtype=np.float64)
+        solid = border_mesh(outer, inner, 0.0, frame_z)
+    else:
+        solid = _shaped_frame(width, height, spec, frame_z)
+    segments = _hanger_segments(width, height, spec, frame_z)
+    if segments:
+        solid = _cut_frame_holes(solid, segments)
+    model.parts.append(MeshPart("frame", rgb, solid))
+    model.frame = spec
+    model.frame_holes = segments
+
+
+def _hanger_segments(width: float, height: float, spec: FrameSpec, frame_z: float) -> list[dict]:
+    """Openings of the hanger holes, in the finished plate."""
+    if spec.hanger == "none":
+        return []
+    if spec.hanger == "nail":
+        return [_nail_pocket(width, height, spec, frame_z)]
+    border = spec.border_mm
+    radius = spec.hole_mm / 2.0
+    drop = spec.drop_mm
+    top = height + border
+    center_z = spec.below_mm + radius
+    holes = []
+    for side_x, inward in ((width + border, -1.0), (-border, 1.0)):
+        start = (side_x + inward * 2.0 * drop, top, center_z)
+        end = (side_x, top - 2.0 * drop, center_z)
+        holes.append({"kind": "string", "radius": radius, "start": start, "end": end})
+    return holes
+
+
+def _nail_pocket(width: float, height: float, spec: FrameSpec, frame_z: float) -> dict:
+    """A back pocket: a round entry, then a wider cavity above it for the head."""
+    border = spec.border_mm
+    margin = 0.4
+    head_r = spec.head_mm / 2.0
+    shaft_r = spec.hole_mm / 2.0
+    neck = 1.0
+    y_rest = height + border - spec.drop_mm
+    outer_top = height + border
+    if y_rest + head_r > outer_top - margin:
+        raise ValueError(
+            "the nail pocket does not fit in the top of the frame. Move it further down, use a smaller head, or a wider border."
+        )
+    y_head = y_rest - head_r - neck
+    if y_head - head_r < height + margin:
+        raise ValueError(
+            "the nail pocket does not fit in the top of the frame. Use a wider border, a smaller head, or sit it closer to the top."
+        )
+    lip = spec.below_mm
+    z_pocket = lip + spec.cavity_mm()
+    if frame_z - z_pocket < spec.above_mm - 1e-6:
+        z_pocket = frame_z - spec.above_mm
+    if z_pocket - lip < 1.2:
+        raise ValueError("the frame is not deep enough for the nail pocket. Leave more plastic on the front, or use a thicker base.")
+    return {
+        "kind": "nail",
+        "radius": shaft_r,
+        "head": head_r,
+        "start": (width / 2.0, y_head, 0.0),
+        "end": (width / 2.0, y_rest, 0.0),
+        "lip": lip,
+        "pocket": z_pocket,
+    }
+
+
+def _cut_frame_holes(solid: np.ndarray, segments: list[dict]) -> np.ndarray:
+    """Cut the hanger openings out of the frame so they are holes, not added bars."""
+    cutters = []
+    for hole in segments:
+        start = np.asarray(hole["start"], dtype=np.float64)
+        end = np.asarray(hole["end"], dtype=np.float64)
+        if hole["kind"] == "nail":
+            cutters.append(
+                keyhole_solid(
+                    float(start[0]),
+                    float(start[1]),
+                    float(end[1]),
+                    float(hole["radius"]),
+                    float(hole["head"]),
+                    float(hole["lip"]),
+                    float(hole["pocket"]),
+                )
+            )
+            continue
+        direction = end - start
+        direction = direction / np.linalg.norm(direction)
+        # The hole meets the face at 45 degrees, so the round opening reaches
+        # one radius back along the hole. The end cap has to clear that, or
+        # it leaves half the opening covered.
+        reach = float(hole["radius"]) + 0.8
+        cutters.append(
+            cylinder_solid(tuple(start - direction * reach), tuple(end + direction * reach), hole["radius"])
+        )
+    return difference(solid, cutters)
+
+
+def _shaped_frame(width: float, height: float, spec: FrameSpec, frame_z: float) -> np.ndarray:
+    """A bevel or a grooved top. Every style is as tall as the plate at the picture."""
+    border = spec.border_mm
+    corner = spec.corner_mm
+    edge_steps = max(6, int(round(max(width, height) / 4.0)))
+    arc_steps = 8
+    rings = [( _parameter_loop(width, height, t * border, corner, border, edge_steps, arc_steps), z) for t, z in _frame_profile(spec.style, frame_z, border)]
+    inner, _inner_z = rings[0]
+    outer, outer_z = rings[-1]
+    pieces = [
+        _band_mesh(inner, outer, 0.0, 0.0)[:, ::-1, :],
+        _wall_mesh(outer, 0.0, outer_z),
+        _wall_mesh(inner[::-1], 0.0, frame_z),
+    ]
+    for (loop_a, z_a), (loop_b, z_b) in zip(rings, rings[1:]):
+        pieces.append(_band_mesh(loop_a, loop_b, z_a, z_b))
+    return np.ascontiguousarray(np.concatenate([piece for piece in pieces if len(piece)]))
+
+
+def _frame_profile(style: str, frame_z: float, border: float) -> list[tuple[float, float]]:
+    """Points across the border, from the picture (0) to the outside (1), and their height."""
+    if style == "bevel":
+        chamfer = min(border * 0.45, frame_z * 0.55)
+        chamfer = max(chamfer, min(0.35, frame_z * 0.2))
+        shoulder = 1.0 - chamfer / border
+        return [(0.0, frame_z), (shoulder, frame_z), (1.0, frame_z - chamfer)]
+    depth = min(frame_z * 0.34, border * 0.2)
+    steps = 14
+    profile = []
+    for index in range(steps + 1):
+        across = index / steps
+        if across < 0.16 or across > 0.84:
+            height = frame_z
+        else:
+            unit = (across - 0.16) / 0.68
+            height = frame_z - depth * math.sin(math.pi * unit)
+        profile.append((across, height))
+    return profile
+
+
+def _parameter_loop(
+    width: float,
+    height: float,
+    margin: float,
+    corner: float,
+    border: float,
+    edge_steps: int,
+    arc_steps: int,
+) -> np.ndarray:
+    """The same stations at every inset, so a bevel can connect them."""
+    radius = max(0.0, margin - (border - corner))
+    x0, y0 = -margin, -margin
+    x1, y1 = width + margin, height + margin
+    points: list[tuple[float, float]] = []
+
+    def edge(ax: float, ay: float, bx: float, by: float) -> None:
+        for step in range(edge_steps):
+            unit = step / edge_steps
+            points.append((ax + (bx - ax) * unit, ay + (by - ay) * unit))
+
+    def arc(cx: float, cy: float, a0: float, a1: float) -> None:
+        if radius <= 1e-8:
+            for _ in range(arc_steps):
+                points.append((cx, cy))
+            return
+        for step in range(arc_steps):
+            angle = a0 + (a1 - a0) * (step / arc_steps)
+            points.append((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
+
+    edge(x0 + radius, y0, x1 - radius, y0)
+    arc(x1 - radius, y0 + radius, -math.pi / 2.0, 0.0)
+    edge(x1, y0 + radius, x1, y1 - radius)
+    arc(x1 - radius, y1 - radius, 0.0, math.pi / 2.0)
+    edge(x1 - radius, y1, x0 + radius, y1)
+    arc(x0 + radius, y1 - radius, math.pi / 2.0, math.pi)
+    edge(x0, y1 - radius, x0, y0 + radius)
+    arc(x0 + radius, y0 + radius, math.pi, 3.0 * math.pi / 2.0)
+    return np.asarray(points, dtype=np.float64)
+
+
+def _band_mesh(inner: np.ndarray, outer: np.ndarray, z0: float, z1: float) -> np.ndarray:
+    """Quads between two counter-clockwise loops. The face points upward."""
+    count = len(inner)
+    triangles = np.empty((count * 2, 3, 3), dtype=np.float64)
+    for index in range(count):
+        nxt = (index + 1) % count
+        a = (float(inner[index, 0]), float(inner[index, 1]), z0)
+        b = (float(inner[nxt, 0]), float(inner[nxt, 1]), z0)
+        c = (float(outer[nxt, 0]), float(outer[nxt, 1]), z1)
+        d = (float(outer[index, 0]), float(outer[index, 1]), z1)
+        triangles[index * 2] = (a, d, c)
+        triangles[index * 2 + 1] = (a, c, b)
+    return _keep_area(triangles)
+
+
+def _wall_mesh(loop: np.ndarray, z0: float, z1: float) -> np.ndarray:
+    """Side wall of a counter-clockwise loop. The face points away from the interior."""
+    if abs(z1 - z0) < 1e-9:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    count = len(loop)
+    triangles = np.empty((count * 2, 3, 3), dtype=np.float64)
+    for index in range(count):
+        nxt = (index + 1) % count
+        p0 = (float(loop[index, 0]), float(loop[index, 1]), z0)
+        p1 = (float(loop[nxt, 0]), float(loop[nxt, 1]), z0)
+        q1 = (float(loop[nxt, 0]), float(loop[nxt, 1]), z1)
+        q0 = (float(loop[index, 0]), float(loop[index, 1]), z1)
+        triangles[index * 2] = (p0, q1, q0)
+        triangles[index * 2 + 1] = (p0, p1, q1)
+    return _keep_area(triangles)
+
+
+def _keep_area(triangles: np.ndarray) -> np.ndarray:
+    if len(triangles) == 0:
+        return triangles
+    cross = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    return np.ascontiguousarray(triangles[np.linalg.norm(cross, axis=1) > 1e-8])
 
 
 def _check_magnets(spec: MagnetSpec) -> None:

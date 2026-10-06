@@ -182,6 +182,8 @@ def _part_label(part: MeshPart) -> str:
         return f"base {label}"
     if part.role == "crest":
         return f"crest {label}"
+    if part.role == "frame":
+        return f"frame {label}"
     return label
 
 
@@ -241,7 +243,7 @@ def _mesh_xml(object_id: int, name: str, vertices: np.ndarray, faces: np.ndarray
 
 
 def _filename(part: MeshPart, used: set[str]) -> str:
-    stem = {"base": "base", "crest": "crest"}.get(part.role, "filament")
+    stem = {"base": "base", "crest": "crest", "frame": "frame"}.get(part.role, "filament")
     name = f"{stem}_{rgb_to_hex(part.rgb)}.stl"
     if name not in used:
         return name
@@ -312,6 +314,33 @@ def _print_notes(model: LenticModel, parts: list[tuple[MeshPart, str]]) -> str:
             "It is its own part, on its own layer above the pictures, so give it the same layer height you entered. "
             "It hides the other picture when the plate is tilted."
         )
+    if model.frame is not None:
+        spec = model.frame
+        outer_w = model.grid.width_mm + 2.0 * spec.border_mm
+        outer_h = model.grid.height_mm + 2.0 * spec.border_mm
+        kind = {"raised": "raised lip", "bevel": "beveled frame", "groove": "grooved frame"}.get(spec.style, "frame")
+        lines.append(
+            f"A {kind} {spec.border_mm:.2f} mm wide surrounds the picture. "
+            f"The outside of the part is {outer_w:.2f} x {outer_h:.2f} mm."
+        )
+        if spec.corner_mm > 0:
+            lines.append(f"The outer corners are rounded to {spec.corner_mm:.2f} mm.")
+        if spec.hanger == "string":
+            lines.append(
+                f"String holes {spec.hole_mm:.2f} mm across run at 45 degrees through the top corners, "
+                f"centered {spec.drop_mm:.2f} mm below the top edge."
+            )
+        elif spec.hanger == "nail":
+            lines.append(
+                f"A keyhole pocket on the back takes a {spec.head_mm:.2f} mm screw head. "
+                f"The shaft is {spec.hole_mm:.2f} mm, and the nail rests {spec.drop_mm:.2f} mm below the top edge. "
+                "The head slides up into a wider space and catches on the lip."
+            )
+        frame_part = next((part for part in model.parts if part.role == "frame"), None)
+        if frame_part is not None:
+            lines.append(
+                f"The frame is its own part, in {color_name(frame_part.rgb)} #{rgb_to_hex(frame_part.rgb)}."
+            )
     if model.magnets is not None:
         spec = model.magnets
         if spec.below_mm == 0:

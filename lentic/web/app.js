@@ -29,6 +29,7 @@ let ticket = 0;
 let inflight = null;
 let lastMeta = null;
 let magnetOutline = null;
+let hangerOutline = null;
 
 const status = document.getElementById("status");
 const canvas = document.getElementById("view");
@@ -49,9 +50,8 @@ scene.add(key);
 const fill = new THREE.DirectionalLight(0xffffff, 0.28);
 fill.position.set(2, 2, -1);
 scene.add(fill);
-const grid = new THREE.GridHelper(200, 20, 0xc4bfb4, 0xd5cfc3);
-grid.position.y = -0.05;
-scene.add(grid);
+let bed = new THREE.Group();
+scene.add(bed);
 
 const plate = new THREE.Group();
 scene.add(plate);
@@ -73,6 +73,12 @@ window.__lentic = {
     const positions = magnetOutline.geometry.getAttribute("position");
     return { visible: magnetOutline.visible, count: positions ? positions.count : 0 };
   },
+  hangerLines: () => {
+    if (!hangerOutline) return null;
+    const positions = hangerOutline.geometry.getAttribute("position");
+    return { visible: hangerOutline.visible, count: positions ? positions.count : 0 };
+  },
+  gridSize: () => [bedNumber("bed-width", 200), bedNumber("bed-depth", 200)],
 };
 
 function resize() {
@@ -151,6 +157,29 @@ function formData() {
     } else {
       data.set("magnet_diameter", String(numberValue("magnet-diameter")));
       data.set("magnet_thickness", String(numberValue("magnet-thickness")));
+    }
+  }
+  data.set("frame", document.getElementById("frame").checked ? "1" : "0");
+  if (document.getElementById("frame").checked) {
+    data.set("frame_style", document.getElementById("frame-style").value);
+    data.set("frame_border", String(numberValue("frame-border")));
+    const corner = Number(document.getElementById("frame-corner").value);
+    if (!Number.isFinite(corner) || corner < 0) {
+      throw new Error("Corner radius needs zero or more millimeters.");
+    }
+    data.set("frame_corner", String(corner));
+    data.set("frame_color", document.getElementById("frame-color").value);
+    const hanger = document.getElementById("frame-hanger").value;
+    data.set("frame_hanger", hanger);
+    if (hanger !== "none") {
+      data.set("frame_hole", String(numberValue("frame-hole")));
+      data.set("frame_drop", String(numberValue("frame-drop")));
+      const belowLabel = hanger === "nail"
+        ? "The lip behind the nail head needs more than zero millimeters."
+        : "Thickness below the hole needs zero or more millimeters.";
+      data.set("frame_below", String(millimetersOrZero("frame-below", belowLabel)));
+      data.set("frame_above", String(numberValue("frame-above")));
+      if (hanger === "nail") data.set("frame_head", String(numberValue("frame-head")));
     }
   }
   if (document.getElementById("use-spools").checked && spools.length) {
@@ -258,10 +287,16 @@ function showPlate(buffer) {
   renderSwatches(meta.parts);
   lastMeta = meta;
   showMagnetLines(meta);
+  showHangerLines(meta);
   exportButton.disabled = plate.children.length === 0;
   status.textContent =
     `${meta.width_mm.toFixed(1)} x ${meta.height_mm.toFixed(1)} x ${meta.depth_mm.toFixed(1)} mm, ` +
     `${meta.ridges} x ${meta.rows} picture at ${meta.pitch_mm.toFixed(2)} mm ridges and ${meta.row_mm.toFixed(2)} mm rows.`;
+  if (meta.frame) {
+    const kinds = { raised: "raised lip", bevel: "beveled frame", groove: "grooved frame" };
+    const kind = kinds[meta.frame.style] || "frame";
+    status.textContent += ` ${kind} ${meta.frame.border_mm.toFixed(1)} mm wide, outside ${meta.frame.outer_w.toFixed(1)} x ${meta.frame.outer_h.toFixed(1)} mm.`;
+  }
   if (meta.magnets) {
     if (meta.magnets.below_mm === 0) {
       status.textContent += " Glue the magnets in from the back after the print.";
@@ -269,7 +304,8 @@ function showPlate(buffer) {
       status.textContent += ` Pause at ${meta.magnets.pause_mm.toFixed(1)} mm to drop in the magnets.`;
     }
   }
-  const sizeKey = `${meta.width_mm.toFixed(2)}x${meta.height_mm.toFixed(2)}`;
+  const frameKey = meta.frame ? `${meta.frame.border_mm}-${meta.frame.corner_mm}-${meta.frame.style}` : "none";
+  const sizeKey = `${meta.width_mm.toFixed(2)}x${meta.height_mm.toFixed(2)}-${frameKey}`;
   if (!framed || sizeKey !== framedSize) frame(framed);
   framed = true;
   framedSize = sizeKey;
@@ -277,6 +313,7 @@ function showPlate(buffer) {
 
 function clearPlate() {
   magnetOutline = null;
+  hangerOutline = null;
   for (const mesh of [...plate.children]) {
     plate.remove(mesh);
     mesh.geometry.dispose();
@@ -303,6 +340,114 @@ function showMagnetLines(meta) {
   magnetOutline.userData.magnets = true;
   magnetOutline.renderOrder = 3;
   plate.add(magnetOutline);
+}
+
+function showHangerLines(meta) {
+  if (hangerOutline) {
+    plate.remove(hangerOutline);
+    hangerOutline.geometry.dispose();
+    hangerOutline.material.dispose();
+    hangerOutline = null;
+  }
+  const frame = meta && meta.frame;
+  const toggle = document.getElementById("show-hanger");
+  if (!frame || !frame.holes || !frame.holes.length || !toggle || !toggle.checked) return;
+  const positions = [];
+  for (const hole of frame.holes) {
+    if (hole.kind === "nail") addKeyhole(positions, meta.width_mm, meta.height_mm, hole);
+    else addOpening(positions, meta.width_mm, meta.height_mm, hole.start, hole.end, hole.radius);
+  }
+  if (!positions.length) return;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  const material = new THREE.LineBasicMaterial({ color: 0x0f766e, depthTest: false });
+  hangerOutline = new THREE.LineSegments(geometry, material);
+  hangerOutline.userData.hanger = true;
+  hangerOutline.renderOrder = 3;
+  plate.add(hangerOutline);
+}
+
+function addOpening(positions, width, height, start, end, radius) {
+  addRing(positions, width, height, start, end, radius);
+  addRing(positions, width, height, end, start, radius);
+}
+
+function addKeyhole(positions, width, height, hole) {
+  const x = hole.start[0];
+  const yHead = hole.start[1];
+  const yRest = hole.end[1];
+  const shaft = hole.radius;
+  const head = hole.head || hole.radius * 2;
+  addFlatRing(positions, width, height, x, yHead, 0, head);
+  addFlatRing(positions, width, height, x, yRest, 0, shaft);
+  pushEdge(positions, width, height, x - shaft, yHead, 0, x - shaft, yRest, 0);
+  pushEdge(positions, width, height, x + shaft, yHead, 0, x + shaft, yRest, 0);
+  addFlatRing(positions, width, height, x, yRest, hole.lip || 0, head);
+}
+
+function addFlatRing(positions, width, height, x, y, z, radius) {
+  const steps = 24;
+  for (let index = 0; index < steps; index += 1) {
+    const a0 = (index / steps) * Math.PI * 2;
+    const a1 = ((index + 1) / steps) * Math.PI * 2;
+    pushEdge(
+      positions,
+      width,
+      height,
+      x + radius * Math.cos(a0),
+      y + radius * Math.sin(a0),
+      z,
+      x + radius * Math.cos(a1),
+      y + radius * Math.sin(a1),
+      z,
+    );
+  }
+}
+
+function addRing(positions, width, height, start, end, radius) {
+  const sx = start[0];
+  const sy = start[1];
+  const sz = start[2];
+  const ex = end[0];
+  const ey = end[1];
+  const ez = end[2];
+  let ax = ex - sx;
+  let ay = ey - sy;
+  let az = ez - sz;
+  const length = Math.hypot(ax, ay, az);
+  if (length < 1e-6) return;
+  ax /= length;
+  ay /= length;
+  az /= length;
+  let hx = 0;
+  let hy = 0;
+  let hz = 1;
+  if (Math.abs(az) > 0.9) {
+    hx = 1;
+    hz = 0;
+  }
+  let ux = ay * hz - az * hy;
+  let uy = az * hx - ax * hz;
+  let uz = ax * hy - ay * hx;
+  const ul = Math.hypot(ux, uy, uz) || 1;
+  ux /= ul;
+  uy /= ul;
+  uz /= ul;
+  const vx = ay * uz - az * uy;
+  const vy = az * ux - ax * uz;
+  const vz = ax * uy - ay * ux;
+  const steps = 24;
+  for (let index = 0; index < steps; index += 1) {
+    const a0 = (index / steps) * Math.PI * 2;
+    const a1 = ((index + 1) / steps) * Math.PI * 2;
+    const c0 = Math.cos(a0) * radius;
+    const s0 = Math.sin(a0) * radius;
+    const c1 = Math.cos(a1) * radius;
+    const s1 = Math.sin(a1) * radius;
+    const p0 = [sx + ux * c0 + vx * s0, sy + uy * c0 + vy * s0, sz + uz * c0 + vz * s0];
+    const p1 = [sx + ux * c1 + vx * s1, sy + uy * c1 + vy * s1, sz + uz * c1 + vz * s1];
+    pushEdge(positions, width, height, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]);
+  }
 }
 
 function pocketPositions(meta) {
@@ -364,7 +509,9 @@ function renderSwatches(parts) {
     const chip = document.createElement("span");
     chip.className = "swatch";
     chip.style.background = part.hex;
-    const label = part.role === "base" ? `base ${part.name || ""}` : (part.name || part.role);
+    const label = part.role === "base" || part.role === "frame" || part.role === "crest"
+      ? `${part.role} ${part.name || ""}`.trim()
+      : (part.name || part.role);
     item.append(chip, document.createTextNode(`${label} ${part.hex}`));
     list.append(item);
   }
@@ -490,6 +637,7 @@ function applyNozzleDefaults() {
   document.getElementById("crest-width").value = formatMm(preset.crestWidth);
   document.getElementById("crest-height").value = formatMm(preset.crestHeight);
   writeResolutionHint();
+  syncFrame();
 }
 
 function writeResolutionHint() {
@@ -748,6 +896,7 @@ document.querySelectorAll("[data-clear]").forEach((button) => {
 ["base", "ridge", "pitch", "row", "max-colors", "base-color"].forEach((id) => {
   document.getElementById(id).addEventListener("input", () => {
     if (id === "ridge" || id === "pitch" || id === "row") writeResolutionHint();
+    if (id === "ridge") syncFrame();
     schedule();
   });
 });
@@ -990,15 +1139,34 @@ function magnetBodyThickness() {
   return Number(document.getElementById(id).value);
 }
 
-function syncMagnets() {
-  const on = document.getElementById("magnets").checked;
-  const rectangular = document.getElementById("magnet-shape").value === "rect";
-  document.getElementById("magnet-fields").hidden = !on;
-  document.getElementById("magnet-round").hidden = rectangular;
-  document.getElementById("magnet-rect").hidden = !rectangular;
-  document.getElementById("magnet-turn-label").hidden = !rectangular;
+function frameHoleStack() {
+  if (!document.getElementById("frame").checked) return 0;
+  const hanger = document.getElementById("frame-hanger").value;
+  if (hanger === "none") return 0;
+  const below = Number(document.getElementById("frame-below").value);
+  const hole = Number(document.getElementById("frame-hole").value);
+  const above = Number(document.getElementById("frame-above").value);
+  if (hanger === "nail") {
+    const ridge = Number(document.getElementById("ridge").value);
+    const head = Number(document.getElementById("frame-head").value);
+    const cavity = Math.max(1.6, Math.min(head * 0.45, 4));
+    const needed = below + cavity + above - ridge;
+    if (!Number.isFinite(needed) || needed <= 0) return 0;
+    return Math.round(needed * 10) / 10;
+  }
+  const total = below + hole + above;
+  return Number.isFinite(total) && total > 0 ? total : 0;
+}
+
+function syncPlateThickness() {
   const base = document.getElementById("base");
-  if (!on) {
+  const magnetsOn = document.getElementById("magnets").checked;
+  let total = frameHoleStack();
+  if (magnetsOn) {
+    const magnet = Number(document.getElementById("magnet-below").value) + magnetBodyThickness() + Number(document.getElementById("magnet-above").value);
+    if (Number.isFinite(magnet) && magnet > total) total = magnet;
+  }
+  if (!magnetsOn && total <= 0) {
     if (base.disabled) {
       base.disabled = false;
       base.value = plainBase;
@@ -1007,8 +1175,50 @@ function syncMagnets() {
   }
   if (!base.disabled) plainBase = base.value;
   base.disabled = true;
-  const total = Number(document.getElementById("magnet-below").value) + magnetBodyThickness() + Number(document.getElementById("magnet-above").value);
-  if (Number.isFinite(total) && total > 0) base.value = (Math.round(total * 10) / 10).toFixed(1);
+  if (total > 0) base.value = (Math.round(total * 10) / 10).toFixed(1);
+}
+
+function syncMagnets() {
+  const on = document.getElementById("magnets").checked;
+  const rectangular = document.getElementById("magnet-shape").value === "rect";
+  document.getElementById("magnet-fields").hidden = !on;
+  document.getElementById("magnet-round").hidden = rectangular;
+  document.getElementById("magnet-rect").hidden = !rectangular;
+  document.getElementById("magnet-turn-label").hidden = !rectangular;
+  syncPlateThickness();
+}
+
+function syncFrame() {
+  const on = document.getElementById("frame").checked;
+  const hanger = document.getElementById("frame-hanger").value;
+  const nail = hanger === "nail";
+  document.getElementById("frame-fields").hidden = !on;
+  document.getElementById("frame-hole-fields").hidden = !on || hanger === "none";
+  document.getElementById("frame-head-row").hidden = !on || !nail;
+  document.getElementById("frame-string-hint").hidden = hanger !== "string";
+  document.getElementById("frame-nail-hint").hidden = !nail;
+  document.getElementById("frame-hole-label").textContent = nail ? "Shaft diameter" : "Hole diameter";
+  document.getElementById("frame-below-label").textContent = nail ? "Lip behind the head" : "Thickness below the hole";
+  document.getElementById("frame-above-label").textContent = nail ? "Plastic on the front" : "Thickness above the hole";
+  const below = Number(document.getElementById("frame-below").value);
+  const hole = Number(document.getElementById("frame-hole").value);
+  const above = Number(document.getElementById("frame-above").value);
+  const hint = document.getElementById("frame-hole-hint");
+  if (nail) {
+    const head = Number(document.getElementById("frame-head").value);
+    const cavity = Math.max(1.6, Math.min(head * 0.45, 4));
+    const stack = frameHoleStack();
+    const depth = `${below} mm of lip on the back, ${cavity.toFixed(1)} mm for the screw head, and ${above} mm of plastic on the front`;
+    hint.textContent = stack > 0
+      ? `The base thickens to ${stack.toFixed(1)} mm so the frame can hold the pocket: ${depth}.`
+      : `The frame is already deep enough for the pocket: ${depth}.`;
+  } else if (hanger === "string" && Number.isFinite(below + hole + above)) {
+    const stack = below + hole + above;
+    hint.textContent = `The base thickens to ${stack.toFixed(1)} mm: ${below} mm below the hole, a ${hole} mm hole, and ${above} mm above it.`;
+  } else {
+    hint.textContent = "";
+  }
+  syncPlateThickness();
 }
 
 document.getElementById("magnets").addEventListener("change", () => {
@@ -1023,6 +1233,7 @@ document.getElementById("magnet-arrange").addEventListener("change", schedule);
 document.getElementById("magnet-edge").addEventListener("input", schedule);
 document.getElementById("magnet-turn").addEventListener("change", schedule);
 document.getElementById("show-magnets").addEventListener("change", () => showMagnetLines(lastMeta));
+document.getElementById("show-hanger").addEventListener("change", () => showHangerLines(lastMeta));
 ["magnet-count", "magnet-diameter", "magnet-thickness", "magnet-width", "magnet-length", "magnet-rect-thickness", "magnet-below", "magnet-above"].forEach((id) => {
   document.getElementById(id).addEventListener("input", () => {
     syncMagnets();
@@ -1030,7 +1241,81 @@ document.getElementById("show-magnets").addEventListener("change", () => showMag
   });
 });
 
+document.getElementById("frame-color").addEventListener("input", schedule);
+["frame", "frame-style", "frame-hanger"].forEach((id) => {
+  document.getElementById(id).addEventListener("change", () => {
+    syncFrame();
+    schedule();
+  });
+});
+["frame-border", "frame-corner", "frame-hole", "frame-head", "frame-drop", "frame-below", "frame-above"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", () => {
+    syncFrame();
+    schedule();
+  });
+});
+
+function bedNumber(id, fallback) {
+  const value = Number(document.getElementById(id).value);
+  return Number.isFinite(value) && value >= 20 ? value : fallback;
+}
+
+function syncBed() {
+  const width = bedNumber("bed-width", 200);
+  const depth = bedNumber("bed-depth", 200);
+  scene.remove(bed);
+  bed.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+  });
+  bed = buildBed(width, depth);
+  scene.add(bed);
+  try {
+    localStorage.setItem("lentic-bed", JSON.stringify({ width, depth }));
+  } catch (error) {
+    /* the bed size still applies for this visit */
+  }
+}
+
+function buildBed(width, depth) {
+  const columns = Math.max(1, Math.round(width / 10));
+  const rows = Math.max(1, Math.round(depth / 10));
+  const positions = [];
+  const x0 = -width / 2;
+  const z0 = -depth / 2;
+  for (let column = 0; column <= columns; column += 1) {
+    const x = x0 + (width * column) / columns;
+    positions.push(x, 0, z0, x, 0, z0 + depth);
+  }
+  for (let row = 0; row <= rows; row += 1) {
+    const z = z0 + (depth * row) / rows;
+    positions.push(x0, 0, z, x0 + width, 0, z);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0xc4bfb4 }));
+  lines.position.y = -0.05;
+  const group = new THREE.Group();
+  group.add(lines);
+  return group;
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem("lentic-bed") || "null");
+  if (saved && Number(saved.width) >= 20 && Number(saved.depth) >= 20) {
+    document.getElementById("bed-width").value = String(saved.width);
+    document.getElementById("bed-depth").value = String(saved.depth);
+  }
+} catch (error) {
+  /* keep the 200 mm bed */
+}
+["bed-width", "bed-depth"].forEach((id) => {
+  document.getElementById(id).addEventListener("input", syncBed);
+});
+
 renderSpools();
 applyOrientation();
 syncMagnets();
+syncFrame();
 syncCrest();
+syncBed();

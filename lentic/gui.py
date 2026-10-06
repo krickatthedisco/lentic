@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import numpy as np
 from PIL import Image
 
-from lentic.build import LenticModel, MagnetSpec, build_from_images
+from lentic.build import FrameSpec, LenticModel, MagnetSpec, build_from_images
 from lentic.color import color_name, parse_hex, rgb_to_hex
 from lentic.export import plate_3mf_bytes
 
@@ -109,6 +109,8 @@ def model_from_form(fields: dict[str, str], files: dict[str, tuple[str, bytes]])
                 crest_height_mm=_millimeters(fields, "crest_height") if _flag(fields, "crest_line", default=False) else 0.2,
                 layer_height_mm=_optional_mm(fields, "layer_height", 0.2),
                 initial_layer_mm=_optional_mm(fields, "initial_layer", 0.2),
+                frame=_frame(fields),
+                frame_rgb=parse_hex(fields.get("frame_color") or "#000000"),
             )
         except (OSError, ValueError) as exc:
             if isinstance(exc, ValueError):
@@ -157,6 +159,28 @@ def pack_preview(model: LenticModel) -> bytes:
         "base_mm": round(model.base_mm, 4),
         "parts": parts,
     }
+    if model.frame is not None:
+        spec = model.frame
+        payload["frame"] = {
+            "style": spec.style,
+            "border_mm": round(spec.border_mm, 4),
+            "corner_mm": round(spec.corner_mm, 4),
+            "hanger": spec.hanger,
+            "outer_w": round(model.grid.width_mm + 2.0 * spec.border_mm, 4),
+            "outer_h": round(model.grid.height_mm + 2.0 * spec.border_mm, 4),
+            "holes": [
+                {
+                    "kind": hole["kind"],
+                    "radius": round(hole["radius"], 4),
+                    "start": [round(value, 4) for value in hole["start"]],
+                    "end": [round(value, 4) for value in hole["end"]],
+                    "head": round(float(hole.get("head", hole["radius"])), 4),
+                    "lip": round(float(hole.get("lip", 0.0)), 4),
+                    "pocket": round(float(hole.get("pocket", 0.0)), 4),
+                }
+                for hole in model.frame_holes
+            ],
+        }
     if model.magnets is not None:
         spec = model.magnets
         hole_w, hole_h = spec.hole_span()
@@ -328,6 +352,57 @@ def _orientation(fields: dict[str, str]) -> str:
     if value in {"vertical", "side", "left", ""}:
         return "vertical"
     raise ValueError("orientation must be vertical or horizontal")
+
+
+def _frame(fields: dict[str, str]) -> FrameSpec | None:
+    if not _flag(fields, "frame", default=False):
+        return None
+    style = (fields.get("frame_style") or "raised").strip().lower()
+    if style in {"raised", "lip"}:
+        style = "raised"
+    elif style in {"bevel", "beveled"}:
+        style = "bevel"
+    elif style in {"groove", "grooved", "cove"}:
+        style = "groove"
+    else:
+        raise ValueError("frame style must be a raised lip, a bevel, or a groove")
+    hanger = (fields.get("frame_hanger") or "none").strip().lower()
+    if hanger in {"none", "off"}:
+        hanger = "none"
+    elif hanger in {"string", "twine"}:
+        hanger = "string"
+    elif hanger in {"nail", "hook"}:
+        hanger = "nail"
+    spec = FrameSpec(
+        style=style,
+        border_mm=_millimeters(fields, "frame_border"),
+        corner_mm=_millimeters_or_named_zero(fields, "frame_corner", "corner radius"),
+        hanger=hanger,
+    )
+    if hanger == "none":
+        return spec
+    below_label = "the lip behind the nail head" if hanger == "nail" else "thickness below the hole"
+    return FrameSpec(
+        style=style,
+        border_mm=spec.border_mm,
+        corner_mm=spec.corner_mm,
+        hanger=hanger,
+        hole_mm=_millimeters(fields, "frame_hole"),
+        drop_mm=_millimeters(fields, "frame_drop"),
+        below_mm=_millimeters_allowing_zero(fields, "frame_below", below_label),
+        above_mm=_millimeters(fields, "frame_above"),
+        head_mm=_millimeters(fields, "frame_head") if hanger == "nail" else 4.5,
+    )
+
+
+def _millimeters_or_named_zero(fields: dict[str, str], key: str, label: str) -> float:
+    try:
+        value = float(fields.get(key) or "0")
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a number of millimeters") from None
+    if value < 0:
+        raise ValueError(f"{label} must be zero or more")
+    return value
 
 
 def _magnets(fields: dict[str, str]) -> MagnetSpec | None:

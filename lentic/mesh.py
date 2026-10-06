@@ -207,6 +207,79 @@ def _at_y(a: np.ndarray, b: np.ndarray, c: np.ndarray, y: float) -> list[tuple[f
     ]
 
 
+def extrude_xy(poly: np.ndarray, z0: float, z1: float) -> np.ndarray:
+    """Extrude an XY polygon into a closed mesh. Counter-clockwise points up."""
+    points = _dedup(np.asarray(poly, dtype=np.float64))
+    if len(points) < 3 or abs(z1 - z0) < 1e-9:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    if _signed_area(points) < 0:
+        points = points[::-1].copy()
+    if z1 < z0:
+        z0, z1 = z1, z0
+    tris: list[list[tuple[float, float, float]]] = []
+    for index in range(1, len(points) - 1):
+        a, b, c = points[0], points[index], points[index + 1]
+        tris.append(_at_z(a, b, c, z1))
+        tris.append(_at_z(a, c, b, z0))
+    for index in range(len(points)):
+        start = points[index]
+        end = points[(index + 1) % len(points)]
+        p0 = (float(start[0]), float(start[1]), z0)
+        p1 = (float(end[0]), float(end[1]), z0)
+        q1 = (float(end[0]), float(end[1]), z1)
+        q0 = (float(start[0]), float(start[1]), z1)
+        tris.append([p0, q1, q0])
+        tris.append([p0, p1, q1])
+    return _drop_degenerate(np.asarray(tris, dtype=np.float64))
+
+
+def _at_z(a: np.ndarray, b: np.ndarray, c: np.ndarray, z: float) -> list[tuple[float, float, float]]:
+    return [
+        (float(a[0]), float(a[1]), z),
+        (float(b[0]), float(b[1]), z),
+        (float(c[0]), float(c[1]), z),
+    ]
+
+
+def wall_xy(poly: np.ndarray, z0: float, z1: float) -> np.ndarray:
+    """Side wall of an XY loop. A counter-clockwise loop faces away from its interior."""
+    points = _dedup(np.asarray(poly, dtype=np.float64))
+    if len(points) < 2 or abs(z1 - z0) < 1e-9:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    if z1 < z0:
+        z0, z1 = z1, z0
+    tris: list[list[tuple[float, float, float]]] = []
+    for index in range(len(points)):
+        start = points[index]
+        end = points[(index + 1) % len(points)]
+        p0 = (float(start[0]), float(start[1]), z0)
+        p1 = (float(end[0]), float(end[1]), z0)
+        q1 = (float(end[0]), float(end[1]), z1)
+        q0 = (float(start[0]), float(start[1]), z1)
+        tris.append([p0, q1, q0])
+        tris.append([p0, p1, q1])
+    return _drop_degenerate(np.asarray(tris, dtype=np.float64))
+
+
+def border_mesh(outer: np.ndarray, inner: np.ndarray, z0: float, z1: float) -> np.ndarray:
+    """A frame: the outer loop minus the inner loop, extruded from z0 to z1.
+
+    Both loops are counter-clockwise. The inner loop is a hole.
+    """
+    if z1 < z0:
+        z0, z1 = z1, z0
+    if z1 - z0 < 1e-9:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    floor = _triangulate_with_holes(np.asarray(outer, dtype=np.float64), [np.asarray(inner, dtype=np.float64)])
+    top = floor.copy()
+    top[:, :, 2] = z1
+    bottom = floor[:, ::-1, :].copy()
+    bottom[:, :, 2] = z0
+    outside = wall_xy(outer, z0, z1)
+    inside = wall_xy(np.asarray(inner, dtype=np.float64)[::-1], z0, z1)
+    return np.ascontiguousarray(np.concatenate([bottom, top, outside, inside]))
+
+
 def box_mesh(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float) -> np.ndarray:
     """A closed box. Normals point outward and the volume is positive."""
     if x1 - x0 < 1e-9 or y1 - y0 < 1e-9 or z1 - z0 < 1e-9:
@@ -284,6 +357,133 @@ def cylinder_cavity(
         triangles[slot + 2] = (bottom_0, top_1, bottom_1)
         triangles[slot + 3] = (bottom_0, top_0, top_1)
     return triangles
+
+
+def cylinder_tunnel(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    radius: float,
+    segments: int = 32,
+) -> np.ndarray:
+    """A round hole from ``start`` to ``end``. Normals point into the hole.
+
+    The flat caps sit on the ends. A hole that meets a face at an angle has to
+    be extended past that face by more than its radius, or the cap covers
+    part of the opening.
+    """
+    begin = np.asarray(start, dtype=np.float64)
+    finish = np.asarray(end, dtype=np.float64)
+    axis = finish - begin
+    length = float(np.linalg.norm(axis))
+    if length < 1e-9 or radius <= 0 or segments < 3:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    direction = axis / length
+    helper = np.array([0.0, 0.0, 1.0] if abs(direction[2]) < 0.9 else [1.0, 0.0, 0.0])
+    across = np.cross(direction, helper)
+    across = across / np.linalg.norm(across)
+    upward = np.cross(direction, across)
+    angles = np.linspace(0.0, 2.0 * np.pi, segments, endpoint=False)
+    offsets = [radius * (np.cos(angle) * across + np.sin(angle) * upward) for angle in angles]
+    ring0 = [begin + offset for offset in offsets]
+    ring1 = [finish + offset for offset in offsets]
+    triangles = np.empty((segments * 4, 3, 3), dtype=np.float64)
+    for index in range(segments):
+        nxt = (index + 1) % segments
+        slot = index * 4
+        triangles[slot] = (ring0[index], ring0[nxt], ring1[nxt])
+        triangles[slot + 1] = (ring0[index], ring1[nxt], ring1[index])
+        triangles[slot + 2] = (begin, ring0[nxt], ring0[index])
+        triangles[slot + 3] = (finish, ring1[index], ring1[nxt])
+    if mesh_volume(triangles) > 0:
+        triangles = triangles[:, ::-1, :]
+    return triangles
+
+
+def cylinder_solid(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    radius: float,
+    segments: int = 32,
+) -> np.ndarray:
+    """A solid round bar from ``start`` to ``end``. Its volume is positive."""
+    hole = cylinder_tunnel(start, end, radius, segments)
+    if len(hole) == 0:
+        return hole
+    return np.ascontiguousarray(hole[:, ::-1, :])
+
+
+def difference(solid: np.ndarray, cutters: list[np.ndarray]) -> np.ndarray:
+    """Remove each solid cutter from a closed mesh."""
+    import manifold3d
+
+    result = _as_manifold(solid)
+    for cutter in cutters:
+        if len(cutter) == 0:
+            continue
+        result = result - _as_manifold(cutter)
+    if result.is_empty() or result.volume() <= 1e-6:
+        raise ValueError("the hanger hole cut away the frame")
+    return _triangles_from_mesh(result.to_mesh())
+
+
+def keyhole_solid(
+    x: float,
+    y_head: float,
+    y_rest: float,
+    shaft_radius: float,
+    head_radius: float,
+    lip: float,
+    pocket: float,
+) -> np.ndarray:
+    """A keyhole pocket. The back opening is narrow at the top and wide below.
+
+    Past the lip, the cavity is as wide as the screw head all the way up, so
+    the head can slide up and catch.
+    """
+    import manifold3d
+
+    if pocket - lip <= 1e-6 or shaft_radius <= 0 or head_radius <= shaft_radius:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    narrow = _keyhole_section(x, y_head, y_rest, shaft_radius, head_radius, shaft_radius)
+    wide = _keyhole_section(x, y_head, y_rest, head_radius, head_radius, head_radius)
+    opening = manifold3d.Manifold.extrude(narrow, float(pocket))
+    cavity = manifold3d.Manifold.extrude(wide, float(pocket - lip)).translate((0.0, 0.0, float(lip)))
+    return _triangles_from_mesh((opening + cavity).to_mesh())
+
+
+def _keyhole_section(x: float, y_head: float, y_rest: float, slot: float, head_radius: float, top_radius: float):
+    import manifold3d
+
+    def circle(cx: float, cy: float, radius: float):
+        return manifold3d.CrossSection.circle(radius, 32).translate((cx, cy))
+
+    rect = manifold3d.CrossSection(
+        [[(x - slot, y_head), (x + slot, y_head), (x + slot, y_rest), (x - slot, y_rest)]]
+    )
+    return circle(x, y_head, head_radius) + rect + circle(x, y_rest, top_radius)
+
+
+def _as_manifold(triangles: np.ndarray):
+    import manifold3d
+
+    flat = np.ascontiguousarray(triangles, dtype=np.float64).reshape(-1, 3)
+    rounded = np.round(flat, 5)
+    vertices, inverse = np.unique(rounded, axis=0, return_inverse=True)
+    faces = inverse.reshape(-1, 3).astype(np.uint32)
+    keep = (faces[:, 0] != faces[:, 1]) & (faces[:, 1] != faces[:, 2]) & (faces[:, 0] != faces[:, 2])
+    mesh = manifold3d.Mesh(
+        vert_properties=np.ascontiguousarray(vertices, dtype=np.float32),
+        tri_verts=np.ascontiguousarray(faces[keep]),
+    )
+    return manifold3d.Manifold(mesh)
+
+
+def _triangles_from_mesh(mesh) -> np.ndarray:
+    vertices = np.asarray(mesh.vert_properties, dtype=np.float64)
+    faces = np.asarray(mesh.tri_verts, dtype=np.int64)
+    if vertices.shape[1] > 3:
+        vertices = vertices[:, :3]
+    return np.ascontiguousarray(vertices[faces])
 
 
 def open_pocket_base(

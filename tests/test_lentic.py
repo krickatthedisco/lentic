@@ -96,6 +96,24 @@ class TestColor(unittest.TestCase):
         chosen = floyd_steinberg(image, palette)
         self.assertTrue(np.all(chosen[5:7, 5:7] == 1))
 
+    def test_dither_covers_the_background_above_a_shape(self):
+        beige = np.array([247, 244, 204], dtype=np.float64)
+        orange = np.array([255, 131, 0], dtype=np.float64)
+        background = np.clip(beige * 0.85 + orange * 0.15, 0, 255).round().astype(np.uint8)
+        image = np.empty((40, 30, 3), dtype=np.uint8)
+        image[:] = background
+        image[12:28, 8:22] = (180, 40, 40)
+        palette = np.array(
+            [[247, 244, 204], [255, 131, 0], [230, 57, 70], [17, 17, 17], [29, 78, 137]],
+            dtype=np.uint8,
+        )
+        chosen = floyd_steinberg(image, palette)
+        above = np.mean(chosen[:12] == 1)
+        below = np.mean(chosen[28:] == 1)
+        self.assertGreater(above, 0.05)
+        self.assertGreater(below, 0.05)
+        self.assertLess(abs(above - below), 0.08)
+
 
 class TestBuild(unittest.TestCase):
     def test_batched_slopes_match_a_single_extrusion(self):

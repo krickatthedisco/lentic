@@ -147,39 +147,51 @@ def _lab_pixel(red: float, green: float, blue: float) -> tuple[float, float, flo
     return 116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)
 
 
+def _nearest_filament(lab: tuple[float, float, float], swatches: list[tuple[float, float, float]]) -> tuple[int, float]:
+    best = 0
+    best_distance = None
+    for index, swatch in enumerate(swatches):
+        distance = (swatch[0] - lab[0]) ** 2 + (swatch[1] - lab[1]) ** 2 + (swatch[2] - lab[2]) ** 2
+        if best_distance is None or distance < best_distance:
+            best = index
+            best_distance = distance
+    return best, 0.0 if best_distance is None else best_distance
+
+
 def floyd_steinberg(rgb: np.ndarray, palette: np.ndarray) -> np.ndarray:
     """Serpentine Floyd-Steinberg dither onto the filament palette.
 
-    A pixel that is already close to a filament is snapped and does not bleed
-    into its neighbors. Flat areas, including a small patch of a distinct
-    color, stay solid. Pixels between filaments still dither.
+    A picture pixel that is already close to a filament stays that filament.
+    Neighbor error cannot knock it into another color, so a flat area does not
+    start dithering only once some other object is reached. Pixels between
+    filaments dither from the first row.
     """
     palette = as_rgb_array(palette)
-    image = np.asarray(rgb, dtype=np.float64).copy()
+    source = np.asarray(rgb, dtype=np.float64)
+    image = source.copy()
     height, width = image.shape[:2]
     chosen = np.zeros((height, width), dtype=np.int32)
     swatches = [tuple(float(channel) for channel in lab) for lab in rgb_to_lab(palette)]
     filaments = [tuple(float(channel) for channel in color) for color in palette]
-    snap = 14.0**2
+    # Wide of "close" leaves a between-filament background solid until a
+    # contrasting shape, such as hair, pushes error into it. Error only
+    # travels downward, so the dither then starts at that shape.
+    snap = 8.0**2
     for y in range(height):
         forward = y % 2 == 0
         columns = range(width) if forward else range(width - 1, -1, -1)
         step = 1 if forward else -1
         for x in columns:
+            original = _lab_pixel(float(source[y, x, 0]), float(source[y, x, 1]), float(source[y, x, 2]))
+            source_best, source_distance = _nearest_filament(original, swatches)
             red = min(255.0, max(0.0, float(image[y, x, 0])))
             green = min(255.0, max(0.0, float(image[y, x, 1])))
             blue = min(255.0, max(0.0, float(image[y, x, 2])))
-            lab = _lab_pixel(red, green, blue)
-            best = 0
-            best_distance = None
-            for index, swatch in enumerate(swatches):
-                distance = (swatch[0] - lab[0]) ** 2 + (swatch[1] - lab[1]) ** 2 + (swatch[2] - lab[2]) ** 2
-                if best_distance is None or distance < best_distance:
-                    best = index
-                    best_distance = distance
-            chosen[y, x] = best
-            if best_distance is not None and best_distance <= snap:
+            best, _best_distance = _nearest_filament(_lab_pixel(red, green, blue), swatches)
+            if source_distance <= snap:
+                chosen[y, x] = source_best
                 continue
+            chosen[y, x] = best
             filament = filaments[best]
             error_r = red - filament[0]
             error_g = green - filament[1]

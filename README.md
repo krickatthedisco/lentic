@@ -59,9 +59,9 @@ The page stays on your computer, at `127.0.0.1`. Upload a picture for each view.
 - **Aspect** sets the plate and the crop frame. Match picture follows the first picture. Free lets you set width and height separately. Square (1:1), 4:3, 3:2, 5:4, 16:9, 2:1, 3:4, 2:3, and 9:16 are the fixed shapes.
 - Drag the frame on a picture to crop it. The frame matches the plate, so the rest of the photo is not silently cut off. Corner handles resize it. **Reset crop** uses the whole picture again.
 - The base starts black. Change **Base color** if the backing should be another filament.
-- **Nozzle** is 0.2, 0.3, 0.4, 0.5, or 0.6 mm. Picking one fills in the pitch, row size, ridge height, and crest line width for that nozzle. Five lines stay on each slope, each row is one nozzle wide, and the ridge is 0.8 times the pitch. A 0.4 mm nozzle starts at a 4 mm pitch, a 0.4 mm row, and a 3.2 mm ridge. The tip is cut flat 0.5 mm in from each side, and that cut is 1.25 times the nozzle width. Change any of those afterward if you want.
+- **Nozzle** is 0.2, 0.3, 0.4, 0.5, or 0.6 mm. Picking one fills in the pitch, row size, ridge height, and crest line width for that nozzle. Two lines stay on each slope, each row is one nozzle wide, and the ridge is 0.8 times the pitch. A 0.4 mm nozzle starts at a 1.6 mm pitch, a 0.4 mm row, and a 1.28 mm ridge. The tip is cut flat 0.5 mm in from each side, and that cut is 1.25 times the nozzle width. Change any of those afterward if you want.
 - **Layer height** and **Initial layer height** are the same numbers as in the slicer. The crest line becomes one layer tall and is lifted onto its own layer, above the pictures.
-- **Add a crest line** lays one filament along the top of each ridge. It is off until you turn it on. It starts black, 0.4 mm wide and 0.2 mm tall, and both the size and the color can change. It prints as its own filament and hides the other picture when you tilt the plate.
+- **Add a crest line** lays one filament along the top of each ridge. It starts turned on, in black, 0.4 mm wide and 0.2 mm tall. The size and the color can change. It prints as its own filament and hides the other picture when you tilt the plate.
 - The view beside the controls is the actual plate. Drag to rotate, scroll to zoom. **View from Left** and **View from Right** (or top and bottom) turn it 45 degrees so you can check one picture. Each swatch is a filament, named from its color and labeled with the hex code.
 
 **Export for slicer** downloads `lentic-plate.3mf`. It opens as one plate with one part per color, already assembled. Match each part to the filament named on it, then slice. Do not split the plate into shells. An STL cannot keep those colors as separate parts: a slicer breaks it into one piece per ridge. Lay the plate flat with the ridges facing up. Do not stand it on its side. Always print at 100% infill.
@@ -105,11 +105,11 @@ Open `preview.html` in that folder and drag the slider. That is the ideal view o
 1. Open `model.3mf`. It is one plate, already split into one part per color.
 2. Match each part to the filament named on it. Do not split the plate into shells.
 3. Leave the plate flat, ridges up. Standing it on its side ruins the flip. Always print at 100% infill.
-4. Slice with the nozzle you picked. A 0.4 mm nozzle starts at 0.2 mm layers, a 4 mm pitch, five lines on each slope, and a 3.2 mm ridge, so a side view shows one picture. Rows are one nozzle wide. A smaller nozzle uses the finer pitch and row from the nozzle menu. If the flip is weak, raise the ridge height.
+4. Slice with the nozzle you picked. A 0.4 mm nozzle starts at 0.2 mm layers, a 1.6 mm pitch, two lines on each slope, and a 1.28 mm ridge, so a side view shows one picture. Rows are one nozzle wide. A smaller nozzle uses the finer pitch and row from the nozzle menu. If the flip is weak, raise the ridge height.
 
 Photos are posterized down to the filament count. Simple graphics with a few flat colors stay much cleaner. `--max-colors` can go up to the number of filaments you actually have.
 
-Ridge pitch defaults to `nozzle × lines × number of images` (0.4 × 5 × 2 = 4.0 mm). Rows default to the nozzle width, 0.4 mm. Pass `--pitch`, `--lines`, or `--row` to override them.
+Ridge pitch defaults to `nozzle × lines × number of images` (0.4 × 2 × 2 = 1.6 mm). Rows default to the nozzle width, 0.4 mm. Pass `--pitch`, `--lines`, or `--row` to override them.
 
 ## License
 

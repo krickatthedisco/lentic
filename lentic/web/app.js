@@ -458,7 +458,7 @@ function idleStatus() {
     : "Upload a left picture and a right picture.";
 }
 
-const LINES_PER_SLOPE = 5;
+const LINES_PER_SLOPE = 2;
 
 function formatMm(value) {
   return String(Math.round(value * 1000) / 1000);

@@ -1,3 +1,6 @@
+<img width="800" height="450" alt="LenticMozillaFirefox2026-10-0620-06-18-ezgif com-optimize" src="https://github.com/user-attachments/assets/16a0ab2d-85e9-4ee7-b0e3-5f067bc43db0" />
+
+
 # Lentic
 
 Lentic turns two pictures into a 3D-printable plate that flips between them as you tilt it. Each picture is matched to filament colors, then built as its own solid so a multi-material slicer (Bambu AMS, Prusa MMU, OrcaSlicer, PrusaSlicer) can print the color.
